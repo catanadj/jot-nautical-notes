@@ -37,6 +37,16 @@ def chain_note_path(config: AppConfig, chain_id: str, description: str) -> Path:
     return config.chains_dir / f"{chain_id}--{slug}.md"
 
 
+def project_note_path(config: AppConfig, project_name: str) -> Path:
+    normalized = str(project_name or "").strip()
+    if not normalized:
+        raise RuntimeError("project name is empty")
+    parts = [slugify(part, fallback="project") for part in normalized.split(".") if part.strip()]
+    if not parts:
+        raise RuntimeError("project name is empty")
+    return config.projects_dir.joinpath(*parts, "index.md")
+
+
 def ensure_task_note(config: AppConfig, task: ResolvedTask) -> NotePaths:
     note_path = task_note_path(config, task)
     existed = note_path.exists()
@@ -63,6 +73,18 @@ def ensure_chain_note(config: AppConfig, task: ResolvedTask) -> NotePaths:
     return NotePaths(note_path=note_path, existed=existed)
 
 
+def ensure_project_note(config: AppConfig, project_name: str) -> NotePaths:
+    normalized = str(project_name or "").strip()
+    if not normalized:
+        raise RuntimeError("project name is empty")
+    note_path = project_note_path(config, normalized)
+    existed = note_path.exists()
+    if not existed:
+        metadata, body = _build_project_note_document(normalized)
+        write_document(note_path, metadata, body)
+    return NotePaths(note_path=note_path, existed=existed)
+
+
 def touch_updated(path: Path) -> None:
     update_metadata(path, {"updated": iso_now()})
 
@@ -81,12 +103,27 @@ def append_to_chain_note(config: AppConfig, task: ResolvedTask, text: str) -> Ap
     return AppendResult(note_path=note.note_path, existed=note.existed, appended_text=text)
 
 
+def append_to_project_note(config: AppConfig, project_name: str, text: str) -> AppendResult:
+    note = ensure_project_note(config, project_name)
+    _append_text(note.note_path, text)
+    touch_updated(note.note_path)
+    return AppendResult(note_path=note.note_path, existed=note.existed, appended_text=text)
+
+
 def find_chain_note(config: AppConfig, task: ResolvedTask) -> Path | None:
     chain_id = chain_id_for_task(task.task)
     if not chain_id:
         return None
     existing = sorted(config.chains_dir.glob(f"{chain_id}--*.md"))
     return existing[0] if existing else None
+
+
+def find_project_note(config: AppConfig, project_name: str) -> Path | None:
+    normalized = str(project_name or "").strip()
+    if not normalized:
+        return None
+    note_path = project_note_path(config, normalized)
+    return note_path if note_path.exists() else None
 
 
 def _render_task_note(task: ResolvedTask) -> str:
@@ -160,6 +197,36 @@ def _build_chain_note_document(task: ResolvedTask) -> tuple[OrderedDict[str, obj
             "## Exceptions",
             "",
             "## References",
+        ]
+    )
+    return metadata, body
+
+
+def _build_project_note_document(project_name: str) -> tuple[OrderedDict[str, object], str]:
+    created = iso_now()
+    project_path = [part.strip() for part in project_name.split(".") if part.strip()]
+    metadata: OrderedDict[str, object] = OrderedDict(
+        [
+            ("kind", "project-note"),
+            ("project", project_name),
+            ("project_path", project_path),
+            ("created", created),
+            ("updated", created),
+        ]
+    )
+    body = "\n".join(
+        [
+            f"# {project_name}",
+            "",
+            "## Purpose",
+            "",
+            "## Context",
+            "",
+            "## Standards",
+            "",
+            "## References",
+            "",
+            "## Active concerns",
         ]
     )
     return metadata, body

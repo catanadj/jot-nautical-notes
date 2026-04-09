@@ -27,6 +27,7 @@ class AppConfig:
     root_dir: Path
     tasks_dir: Path
     chains_dir: Path
+    projects_dir: Path
     templates_dir: Path
     editor_command: str
     color_mode: str

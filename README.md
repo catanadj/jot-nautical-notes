@@ -5,8 +5,34 @@ Taskwarrior-Nautical.
 
 It keeps durable task notes and Nautical chain notes as Markdown files under
 `~/.task/jot/`, while using Taskwarrior annotations as the visible event stream.
+It also supports durable project notes for Taskwarrior project namespaces.
 
 Current status: usable CLI core, no hooks yet.
+
+## Install
+
+From the repo root:
+
+```bash
+./install.sh
+```
+
+That installs:
+
+- `~/.local/lib/jot/`
+- `~/.local/bin/jot`
+
+If `~/.local/bin` is not on your `PATH`, add:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Alternative:
+
+```bash
+python3 -m pip install .
+```
 
 ## What It Does
 
@@ -25,8 +51,10 @@ Current status: usable CLI core, no hooks yet.
 jot doctor
 jot note <task-ref>
 jot chain <task-ref>
+jot project <project-name>
 jot note-append <task-ref> [text...]
 jot chain-append <task-ref> [text...]
+jot project-append <project-name> [text...]
 jot add [--type TYPE] <task-ref> [text...]
 jot list <task-ref>
 jot show <task-ref>
@@ -48,6 +76,7 @@ User data lives in `~/.task/jot/`:
 
 - `tasks/<task_short_uuid>--<slug>.md`
 - `chains/<chain_id>--<slug>.md`
+- `projects/<project path>/index.md`
 - `index.json`
 - `ops.jsonl`
 - `config.toml`
@@ -68,6 +97,7 @@ When a task has Nautical fields such as `chainID`, `anchor`, `cp`, or `link`,
 
 - keep an occurrence note for the concrete task
 - keep a chain note for the whole recurrence line
+- surface the matching project note when the task belongs to a project
 - include Nautical context in `show`, `list`, and `export`
 
 Chain notes are keyed by `chainID`.
@@ -77,7 +107,9 @@ Chain notes are keyed by `chainID`.
 ```bash
 jot note 42
 jot chain 42
+jot project Finances.Expense
 jot note-append 42 Followed up with vendor
+jot project-append Finances.Expense waiting on reimbursement rules
 jot add --type status 42 waiting on vendor
 jot list 42
 jot --json export 42
@@ -97,6 +129,5 @@ live Taskwarrior data.
 ## Current Limits
 
 - no hooks yet
-- no packaging/install flow yet
 - no advanced filter-expression task resolution yet
 - no event editing/removal workflow

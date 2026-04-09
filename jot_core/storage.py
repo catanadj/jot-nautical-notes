@@ -2,13 +2,20 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from .index import update_chain_note_index, update_task_event_index, update_task_note_index
+from .index import (
+    update_chain_note_index,
+    update_project_note_index,
+    update_task_event_index,
+    update_task_note_index,
+)
 from .models import AppConfig, AppendResult, NotePaths, ResolvedTask
 from .nautical import chain_id_for_task
 from .notes import (
     append_to_chain_note,
+    append_to_project_note,
     append_to_task_note,
     ensure_chain_note,
+    ensure_project_note,
     ensure_task_note,
     touch_updated,
 )
@@ -42,6 +49,18 @@ def finalize_chain_note_edit(config: AppConfig, task: ResolvedTask, note: NotePa
     )
 
 
+def finalize_project_note_edit(config: AppConfig, project_name: str, note: NotePaths) -> None:
+    touch_updated(note.note_path)
+    update_project_note_index(config, project_name, note.note_path)
+    append_op(
+        config,
+        "project_note_edit",
+        project=project_name,
+        path=str(note.note_path),
+        created=not note.existed,
+    )
+
+
 def append_task_note_storage(config: AppConfig, task: ResolvedTask, text: str) -> AppendResult:
     result = append_to_task_note(config, task, text)
     update_task_note_index(config, task, result.note_path)
@@ -64,6 +83,18 @@ def append_chain_note_storage(config: AppConfig, task: ResolvedTask, text: str) 
         task_short_uuid=task.task_short_uuid,
         task_uuid=task.task_uuid,
         chain_id=chain_id_for_task(task.task) or None,
+        path=str(result.note_path),
+    )
+    return result
+
+
+def append_project_note_storage(config: AppConfig, project_name: str, text: str) -> AppendResult:
+    result = append_to_project_note(config, project_name, text)
+    update_project_note_index(config, project_name, result.note_path)
+    append_op(
+        config,
+        "project_note_append",
+        project=project_name,
         path=str(result.note_path),
     )
     return result

@@ -62,6 +62,16 @@ def rebuild_index(config: AppConfig) -> dict[str, Any]:
             "note_path": _relative_note_path(config, note_path),
             "last_note_at": str(front_matter.get("updated") or "").strip() or None,
         }
+    for note_path in sorted(config.projects_dir.glob("**/index.md")):
+        front_matter, _body = read_document(note_path)
+        project = str(front_matter.get("project") or "").strip()
+        if not project:
+            continue
+        data["projects"][project] = {
+            "project": project,
+            "note_path": _relative_note_path(config, note_path),
+            "last_note_at": str(front_matter.get("updated") or "").strip() or None,
+        }
     for item in read_ops(config):
         _merge_op(data, config, item)
     return data
@@ -108,12 +118,26 @@ def update_task_event_index(config: AppConfig, task: ResolvedTask) -> None:
     save_index(config, data)
 
 
+def update_project_note_index(config: AppConfig, project_name: str, note_path: Path) -> None:
+    normalized = str(project_name or "").strip()
+    if not normalized:
+        raise RuntimeError("project name is empty")
+    data = load_or_rebuild_index(config)
+    data["projects"][normalized] = {
+        "project": normalized,
+        "note_path": _relative_note_path(config, note_path),
+        "last_note_at": iso_now(),
+    }
+    save_index(config, data)
+
+
 def _empty_index() -> dict[str, Any]:
     return {
         "version": 1,
         "updated": iso_now(),
         "tasks": {},
         "chains": {},
+        "projects": {},
     }
 
 
@@ -123,6 +147,7 @@ def _merge_op(data: dict[str, Any], config: AppConfig, item: dict[str, Any]) -> 
     short_uuid = str(item.get("task_short_uuid") or "").strip()
     task_uuid = str(item.get("task_uuid") or "").strip() or None
     chain_id = str(item.get("chain_id") or "").strip() or None
+    project = str(item.get("project") or "").strip() or None
     path = str(item.get("path") or "").strip() or None
 
     if short_uuid:
@@ -156,6 +181,19 @@ def _merge_op(data: dict[str, Any], config: AppConfig, item: dict[str, Any]) -> 
                 merged_chain["note_path"] = _relative_note_path(config, Path(path))
         data["chains"][chain_id] = merged_chain
 
+    if project:
+        existing_project = data["projects"].get(project, {})
+        merged_project = {
+            "project": project,
+            "note_path": existing_project.get("note_path"),
+            "last_note_at": existing_project.get("last_note_at"),
+        }
+        if op.startswith("project_note_"):
+            merged_project["last_note_at"] = ts or merged_project.get("last_note_at")
+            if path:
+                merged_project["note_path"] = _relative_note_path(config, Path(path))
+        data["projects"][project] = merged_project
+
 
 def _relative_note_path(config: AppConfig, path: Path) -> str:
     try:
@@ -169,4 +207,5 @@ def _valid_index_shape(data: Any) -> bool:
         isinstance(data, dict)
         and isinstance(data.get("tasks"), dict)
         and isinstance(data.get("chains"), dict)
+        and isinstance(data.get("projects"), dict)
     )

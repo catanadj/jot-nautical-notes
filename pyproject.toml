@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "jot-taskwarrior"
+version = "0.1.0"
+description = "Note-first companion for Taskwarrior and Taskwarrior-Nautical"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { file = "LICENSE" }
+authors = [
+  { name = "pooK" }
+]
+dependencies = []
+
+[project.scripts]
+jot = "jot_core.cli:main"
+
+[tool.setuptools]
+packages = ["jot_core"]

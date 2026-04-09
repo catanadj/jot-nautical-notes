@@ -21,25 +21,32 @@ def search_all(config: AppConfig, query: str) -> dict[str, list[dict[str, Any]]]
 
 def _search_notes(config: AppConfig, needle: str) -> list[dict[str, Any]]:
     hits: list[dict[str, Any]] = []
-    for base, kind in ((config.tasks_dir, "task-note"), (config.chains_dir, "chain-note")):
-        for path in sorted(base.glob("*.md")):
+    for base, pattern, kind in (
+        (config.tasks_dir, "*.md", "task-note"),
+        (config.chains_dir, "*.md", "chain-note"),
+        (config.projects_dir, "**/index.md", "project-note"),
+    ):
+        for path in sorted(base.glob(pattern)):
             metadata, body = read_document(path)
             haystacks = [
                 str(metadata.get("description") or ""),
+                str(metadata.get("project") or ""),
                 str(body or ""),
                 path.name,
             ]
             combined = "\n".join(haystacks).lower()
             if needle not in combined:
                 continue
-            hits.append(
-                {
-                    "kind": kind,
-                    "path": str(path),
-                    "description": str(metadata.get("description") or ""),
-                    "match": _excerpt(str(body or ""), needle),
-                }
-            )
+            item = {
+                "kind": kind,
+                "path": str(path),
+                "description": str(metadata.get("description") or ""),
+                "match": _excerpt(str(body or ""), needle),
+            }
+            project_name = str(metadata.get("project") or "")
+            if project_name:
+                item["project"] = project_name
+            hits.append(item)
     return hits
 
 

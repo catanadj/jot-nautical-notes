@@ -14,6 +14,7 @@ def read_document(path: Path) -> tuple[FrontMatter, str]:
 
 
 def write_document(path: Path, metadata: FrontMatter, body: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(render_document(metadata, body), encoding="utf-8")
 
 

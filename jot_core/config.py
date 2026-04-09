@@ -41,6 +41,7 @@ def load_config() -> AppConfig:
     root_dir = _expand_path(paths_cfg.get("root"), DEFAULT_ROOT)
     tasks_dir = _expand_path(paths_cfg.get("tasks"), root_dir / "tasks")
     chains_dir = _expand_path(paths_cfg.get("chains"), root_dir / "chains")
+    projects_dir = _expand_path(paths_cfg.get("projects"), root_dir / "projects")
     templates_dir = _expand_path(paths_cfg.get("templates"), root_dir / "templates")
 
     editor_command = str(editor_cfg.get("command") or os.environ.get("EDITOR") or "vim").strip()
@@ -53,6 +54,7 @@ def load_config() -> AppConfig:
         root_dir=root_dir,
         tasks_dir=tasks_dir,
         chains_dir=chains_dir,
+        projects_dir=projects_dir,
         templates_dir=templates_dir,
         editor_command=editor_command,
         color_mode=color_mode,
@@ -62,5 +64,11 @@ def load_config() -> AppConfig:
 
 
 def ensure_app_dirs(config: AppConfig) -> None:
-    for path in (config.root_dir, config.tasks_dir, config.chains_dir, config.templates_dir):
+    for path in (
+        config.root_dir,
+        config.tasks_dir,
+        config.chains_dir,
+        config.projects_dir,
+        config.templates_dir,
+    ):
         path.mkdir(parents=True, exist_ok=True)

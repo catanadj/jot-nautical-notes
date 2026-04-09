@@ -152,6 +152,27 @@ class CliIntegrationTests(JotCliTestCase):
         self.assertEqual(len(ops_lines), 1)
         self.assertIn('"op":"task_note_append"', ops_lines[0])
 
+    def test_project_note_append_uses_project_hierarchy_and_updates_index(self) -> None:
+        result = self.run_jot("project-append", "Finances.Expense", "reimbursement", "policy")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+        note_path = self.home / ".task" / "jot" / "projects" / "finances" / "expense" / "index.md"
+        self.assertTrue(note_path.exists())
+        note_text = note_path.read_text(encoding="utf-8")
+        self.assertIn("project: Finances.Expense", note_text)
+        self.assertIn("project_path:", note_text)
+        self.assertIn("reimbursement policy", note_text)
+
+        index_data = json.loads((self.home / ".task" / "jot" / "index.json").read_text(encoding="utf-8"))
+        self.assertEqual(
+            index_data["projects"]["Finances.Expense"]["note_path"],
+            "projects/finances/expense/index.md",
+        )
+
+        ops_lines = (self.home / ".task" / "jot" / "ops.jsonl").read_text(encoding="utf-8").strip().splitlines()
+        self.assertEqual(len(ops_lines), 1)
+        self.assertIn('"op":"project_note_append"', ops_lines[0])
+
     def test_add_and_list_events(self) -> None:
         task = {
             "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
@@ -236,6 +257,25 @@ class CliIntegrationTests(JotCliTestCase):
             ),
             encoding="utf-8",
         )
+        (jot_root / "projects" / "finance" / "audit").mkdir(parents=True, exist_ok=True)
+        (jot_root / "projects" / "finance" / "audit" / "index.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: project-note
+                project: finance.audit
+                project_path:
+                  - finance
+                  - audit
+                created: 2026-04-05T12:00:00Z
+                updated: 2026-04-05T12:00:00Z
+                ---
+
+                # finance.audit
+                """
+            ),
+            encoding="utf-8",
+        )
         self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
 
         result = self.run_jot("--json", "export", "1")
@@ -246,6 +286,7 @@ class CliIntegrationTests(JotCliTestCase):
         self.assertIn("nautical", payload)
         self.assertTrue(payload["task_note"].endswith("2d6d7d7d--fix-billing-discrepancy.md"))
         self.assertTrue(payload["chain_note"].endswith("a4bf5egh--monthly-review.md"))
+        self.assertTrue(payload["project_note"].endswith("projects/finance/audit/index.md"))
 
     def test_search_finds_notes_and_events_and_has_json_contract(self) -> None:
         task = {
@@ -262,6 +303,7 @@ class CliIntegrationTests(JotCliTestCase):
         self.write_state({"version": "2.6.2", "single": [task], "1": [task], "annotate_key": "1"})
 
         self.run_jot("note-append", "1", "vendor call recap")
+        self.run_jot("project-append", "finance.audit", "vendor escalation policy")
         self.run_jot("add", "--type", "status", "1", "waiting", "on", "vendor")
 
         text_result = self.run_jot("search", "vendor")
@@ -276,6 +318,7 @@ class CliIntegrationTests(JotCliTestCase):
         self.assertGreaterEqual(len(payload["notes"]), 1)
         self.assertGreaterEqual(len(payload["events"]), 1)
         self.assertEqual(payload["events"][0]["kind"], "event")
+        self.assertIn("project-note", {item["kind"] for item in payload["notes"]})
 
     def test_list_json_contract(self) -> None:
         task = {
@@ -290,11 +333,13 @@ class CliIntegrationTests(JotCliTestCase):
             "annotations": [{"entry": "20260405T171501Z", "description": "status: waiting on vendor"}],
         }
         self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
+        self.run_jot("project-append", "finance.audit", "project context")
         result = self.run_jot("--json", "list", "1")
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
         self.assertEqual(payload["task_short_uuid"], "2d6d7d7d")
         self.assertEqual(payload["events"][0]["description"], "status: waiting on vendor")
+        self.assertTrue(payload["project_note"].endswith("projects/finance/audit/index.md"))
 
     def test_corrupt_index_is_rebuilt(self) -> None:
         task = {

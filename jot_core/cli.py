@@ -12,16 +12,20 @@ from .models import CommandResult
 from .nautical import nautical_summary
 from .notes import (
     ensure_chain_note,
+    ensure_project_note,
     ensure_task_note,
     find_chain_note,
+    find_project_note,
     find_task_note,
 )
 from .output import emit_result, warn
 from .search import search_all
 from .storage import (
     append_chain_note_storage,
+    append_project_note_storage,
     append_task_note_storage,
     finalize_chain_note_edit,
+    finalize_project_note_edit,
     finalize_task_note_edit,
     record_event_add,
 )
@@ -39,10 +43,17 @@ def build_parser() -> argparse.ArgumentParser:
         sub = subparsers.add_parser(name)
         sub.add_argument("task_ref", help="task id, full uuid, or short uuid")
 
+    project = subparsers.add_parser("project")
+    project.add_argument("project_name", help="exact Taskwarrior project name")
+
     for name in ("note-append", "chain-append"):
         sub = subparsers.add_parser(name)
         sub.add_argument("task_ref", help="task id, full uuid, or short uuid")
         sub.add_argument("text", nargs="*", help="text to append")
+
+    project_append = subparsers.add_parser("project-append")
+    project_append.add_argument("project_name", help="exact Taskwarrior project name")
+    project_append.add_argument("text", nargs="*", help="text to append")
 
     add = subparsers.add_parser("add")
     add.add_argument("--type", default="note", dest="event_type", help="event type label")
@@ -69,12 +80,16 @@ def main(argv: list[str] | None = None) -> int:
             result = _run_note(ctx, args.task_ref)
         elif args.command == "chain":
             result = _run_chain(ctx, args.task_ref)
+        elif args.command == "project":
+            result = _run_project(ctx, args.project_name)
         elif args.command == "add":
             result = _run_add(ctx, args.task_ref, args.text, args.event_type)
         elif args.command == "note-append":
             result = _run_note_append(ctx, args.task_ref, _text_from_args(args.text))
         elif args.command == "chain-append":
             result = _run_chain_append(ctx, args.task_ref, _text_from_args(args.text))
+        elif args.command == "project-append":
+            result = _run_project_append(ctx, args.project_name, _text_from_args(args.text))
         elif args.command == "list":
             result = _run_list(ctx, args.task_ref)
         elif args.command == "show":
@@ -124,6 +139,20 @@ def _run_chain(ctx, task_ref: str) -> CommandResult:
     )
 
 
+def _run_project(ctx, project_name: str) -> CommandResult:
+    note = ensure_project_note(ctx.config, project_name)
+    open_in_editor(note.note_path, ctx.config.editor_command)
+    finalize_project_note_edit(ctx.config, project_name, note)
+    return CommandResult(
+        command="project",
+        payload={
+            "path": str(note.note_path),
+            "opened": note.existed,
+            "project": project_name,
+        },
+    )
+
+
 def _run_show(ctx, task_ref: str) -> CommandResult:
     task = ctx.taskwarrior.resolve_task(task_ref)
     payload = _task_summary_payload(ctx, task)
@@ -145,6 +174,11 @@ def _task_summary_payload(ctx, task) -> dict:
         "task_note": str(task_note) if task_note is not None else None,
         "nautical": nautical_summary(task.task),
     }
+    if task.project:
+        project_note = find_project_note(ctx.config, task.project)
+        payload["project"] = task.project
+        if project_note is not None:
+            payload["project_note"] = str(project_note)
     chain_note = find_chain_note(ctx.config, task)
     if chain_note is not None:
         payload["chain_note"] = str(chain_note)
@@ -203,6 +237,18 @@ def _run_chain_append(ctx, task_ref: str, text: str) -> CommandResult:
             "path": str(result.note_path),
             "opened": result.existed,
             "task_short_uuid": task.task_short_uuid,
+        },
+    )
+
+
+def _run_project_append(ctx, project_name: str, text: str) -> CommandResult:
+    result = append_project_note_storage(ctx.config, project_name, text)
+    return CommandResult(
+        command="project-append",
+        payload={
+            "path": str(result.note_path),
+            "opened": result.existed,
+            "project": project_name,
         },
     )
 

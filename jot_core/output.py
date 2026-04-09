@@ -17,13 +17,13 @@ def emit_result(result: CommandResult, *, json_mode: bool = False) -> None:
     if command == "doctor":
         _emit_doctor(payload.get("checks", []))
         return
-    if command in {"note", "chain"}:
+    if command in {"note", "chain", "project"}:
         _emit_note_like(command, payload)
         return
     if command == "add":
         _emit_add(payload)
         return
-    if command in {"note-append", "chain-append"}:
+    if command in {"note-append", "chain-append", "project-append"}:
         _emit_append_like(command, payload)
         return
     if command == "list":
@@ -51,13 +51,21 @@ def _emit_doctor(checks: list[dict[str, Any]]) -> None:
 
 def _emit_note_like(command: str, payload: dict[str, Any]) -> None:
     action = "Opened" if payload.get("opened") else "Created"
-    kind = "task note" if command == "note" else "chain note"
+    kind = {
+        "note": "task note",
+        "chain": "chain note",
+        "project": "project note",
+    }[command]
     sys.stdout.write(f"{action} {kind}: {payload['path']}\n")
 
 
 def _emit_append_like(command: str, payload: dict[str, Any]) -> None:
     created = not payload.get("opened")
-    kind = "task note" if command == "note-append" else "chain note"
+    kind = {
+        "note-append": "task note",
+        "chain-append": "chain note",
+        "project-append": "project note",
+    }[command]
     prefix = "Created and appended to" if created else "Appended to"
     sys.stdout.write(f"{prefix} {kind}: {payload['path']}\n")
 
@@ -75,6 +83,9 @@ def _emit_list(payload: dict[str, Any]) -> None:
     chain_note = payload.get("chain_note")
     if chain_note:
         sys.stdout.write(f"Chain note: {chain_note}\n")
+    project_note = payload.get("project_note")
+    if project_note:
+        sys.stdout.write(f"Project note: {project_note}\n")
     events = payload.get("events") or []
     sys.stdout.write("Events:\n")
     if not events:
@@ -93,6 +104,9 @@ def _emit_show(payload: dict[str, Any]) -> None:
     chain_note = payload.get("chain_note")
     if chain_note:
         sys.stdout.write(f"Chain note: {chain_note}\n")
+    project_note = payload.get("project_note")
+    if project_note:
+        sys.stdout.write(f"Project note: {project_note}\n")
     nautical = payload.get("nautical") or {}
     if nautical:
         sys.stdout.write("Nautical:\n")
