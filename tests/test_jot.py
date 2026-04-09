@@ -173,6 +173,78 @@ class CliIntegrationTests(JotCliTestCase):
         self.assertEqual(len(ops_lines), 1)
         self.assertIn('"op":"project_note_append"', ops_lines[0])
 
+    def test_project_show_and_cat_contracts(self) -> None:
+        self.run_jot("project-append", "finance.audit", "vendor escalation policy")
+
+        show_result = self.run_jot("--json", "project-show", "finance.audit")
+        self.assertEqual(show_result.returncode, 0, show_result.stderr)
+        show_payload = json.loads(show_result.stdout)
+        self.assertTrue(show_payload["exists"])
+        self.assertEqual(show_payload["project"], "finance.audit")
+        self.assertTrue(show_payload["path"].endswith("projects/finance/audit/index.md"))
+        self.assertIn("Purpose", show_payload["body_preview"])
+
+        cat_result = self.run_jot("project-cat", "finance.audit")
+        self.assertEqual(cat_result.returncode, 0, cat_result.stderr)
+        self.assertIn("project: finance.audit", cat_result.stdout)
+        self.assertIn("vendor escalation policy", cat_result.stdout)
+
+        missing_show = self.run_jot("--json", "project-show", "missing.project")
+        self.assertEqual(missing_show.returncode, 0, missing_show.stderr)
+        missing_payload = json.loads(missing_show.stdout)
+        self.assertFalse(missing_payload["exists"])
+        self.assertTrue(missing_payload["path"].endswith("projects/missing/project/index.md"))
+
+        missing_cat = self.run_jot("project-cat", "missing.project")
+        self.assertNotEqual(missing_cat.returncode, 0)
+        self.assertIn("project note does not exist", missing_cat.stderr)
+
+    def test_task_and_chain_cat_contracts(self) -> None:
+        task = {
+            "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
+            "description": "Fix billing discrepancy",
+            "project": "finance.audit",
+            "tags": ["ann"],
+            "chainID": "a4bf5egh",
+            "link": 3,
+            "anchor": "m:last-fri",
+            "anchor_mode": "skip",
+            "annotations": [],
+        }
+        self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
+
+        self.run_jot("note-append", "1", "task note body")
+        self.run_jot("chain-append", "1", "chain note body")
+
+        task_cat = self.run_jot("task-cat", "1")
+        self.assertEqual(task_cat.returncode, 0, task_cat.stderr)
+        self.assertIn("task_short_uuid: 2d6d7d7d", task_cat.stdout)
+        self.assertIn("task note body", task_cat.stdout)
+
+        chain_cat = self.run_jot("chain-cat", "1")
+        self.assertEqual(chain_cat.returncode, 0, chain_cat.stderr)
+        self.assertIn("chain_id: a4bf5egh", chain_cat.stdout)
+        self.assertIn("chain note body", chain_cat.stdout)
+
+        missing_task = self.run_jot("task-cat", "1")
+        self.assertEqual(missing_task.returncode, 0, missing_task.stderr)
+
+        fresh_task = {
+            "uuid": "3e6d7d7d-1111-2222-3333-444444444444",
+            "description": "Unnoted task",
+            "project": "",
+            "tags": [],
+            "annotations": [],
+        }
+        self.write_state({"version": "2.6.2", "single": [fresh_task], "2": [fresh_task]})
+        missing_task_cat = self.run_jot("task-cat", "2")
+        self.assertNotEqual(missing_task_cat.returncode, 0)
+        self.assertIn("task note does not exist", missing_task_cat.stderr)
+
+        missing_chain_cat = self.run_jot("chain-cat", "2")
+        self.assertNotEqual(missing_chain_cat.returncode, 0)
+        self.assertIn("chain note does not exist", missing_chain_cat.stderr)
+
     def test_add_and_list_events(self) -> None:
         task = {
             "uuid": "2d6d7d7d-1111-2222-3333-444444444444",

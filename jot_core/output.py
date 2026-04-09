@@ -20,6 +20,12 @@ def emit_result(result: CommandResult, *, json_mode: bool = False) -> None:
     if command in {"note", "chain", "project"}:
         _emit_note_like(command, payload)
         return
+    if command == "project-show":
+        _emit_project_show(payload)
+        return
+    if command in {"project-cat", "task-cat", "chain-cat"}:
+        _emit_cat(payload)
+        return
     if command == "add":
         _emit_add(payload)
         return
@@ -68,6 +74,28 @@ def _emit_append_like(command: str, payload: dict[str, Any]) -> None:
     }[command]
     prefix = "Created and appended to" if created else "Appended to"
     sys.stdout.write(f"{prefix} {kind}: {payload['path']}\n")
+
+
+def _emit_project_show(payload: dict[str, Any]) -> None:
+    sys.stdout.write(f"Project: {payload['project']}\n")
+    exists = bool(payload.get("exists"))
+    sys.stdout.write(f"Project note: {payload['path'] if exists else '(none)'}\n")
+    if not exists:
+        sys.stdout.write(f"Expected path: {payload['path']}\n")
+        return
+    created = payload.get("created")
+    updated = payload.get("updated")
+    if created:
+        sys.stdout.write(f"Created: {created}\n")
+    if updated:
+        sys.stdout.write(f"Updated: {updated}\n")
+    preview = str(payload.get("body_preview") or "").strip()
+    if preview:
+        sys.stdout.write(f"Preview: {preview}\n")
+
+
+def _emit_cat(payload: dict[str, Any]) -> None:
+    sys.stdout.write(str(payload.get("content") or ""))
 
 
 def _emit_add(payload: dict[str, Any]) -> None:

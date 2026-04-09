@@ -8,6 +8,7 @@ from .config import ensure_app_dirs
 from .doctor import run_doctor
 from .editor import open_in_editor
 from .events import collect_event_text, format_event_text, validate_event_type
+from .frontmatter import read_document
 from .models import CommandResult
 from .nautical import nautical_summary
 from .notes import (
@@ -17,6 +18,7 @@ from .notes import (
     find_chain_note,
     find_project_note,
     find_task_note,
+    project_note_path,
 )
 from .output import emit_result, warn
 from .search import search_all
@@ -32,36 +34,145 @@ from .storage import (
 
 
 def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(prog="jot")
-    parser.add_argument("--json", action="store_true", help="emit JSON output")
+    parser = argparse.ArgumentParser(
+        prog="jot",
+        description=(
+            "Note-first companion for Taskwarrior and Taskwarrior-Nautical. "
+            "Taskwarrior annotations remain the visible event stream; durable "
+            "task, chain, and project context lives in note files under ~/.task/jot/."
+        ),
+        epilog=(
+            "Examples:\n"
+            "  jot note 42\n"
+            "  jot chain 42\n"
+            "  jot project Finances.Expense\n"
+            "  jot add --type status 42 waiting on vendor\n"
+            "  jot task-cat 42\n"
+            "  jot project-show Finances.Expense"
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
+    parser.add_argument(
+        "--json",
+        action="store_true",
+        help="emit machine-readable JSON instead of text",
+    )
 
     subparsers = parser.add_subparsers(dest="command", required=True)
 
-    subparsers.add_parser("doctor", help="check jot configuration and dependencies")
+    subparsers.add_parser(
+        "doctor",
+        help="check configuration, storage paths, and Taskwarrior availability",
+        description="Validate jot configuration, storage paths, and Taskwarrior access.",
+    )
 
-    for name in ("note", "chain", "show", "list", "export"):
-        sub = subparsers.add_parser(name)
-        sub.add_argument("task_ref", help="task id, full uuid, or short uuid")
+    task_commands = {
+        "note": "open or create the task note in your editor",
+        "chain": "open or create the Nautical chain note in your editor",
+        "show": "show note paths and Nautical summary for a task",
+        "list": "show task summary plus the current annotation event stream",
+        "export": "export task summary and events",
+        "task-cat": "print the full task note without opening an editor",
+        "chain-cat": "print the full chain note without opening an editor",
+    }
+    for name, help_text in task_commands.items():
+        sub = subparsers.add_parser(name, help=help_text, description=help_text[:1].upper() + help_text[1:] + ".")
+        sub.add_argument(
+            "task_ref",
+            help="task ID, full UUID, or unique short UUID",
+        )
 
-    project = subparsers.add_parser("project")
-    project.add_argument("project_name", help="exact Taskwarrior project name")
+    project = subparsers.add_parser(
+        "project",
+        help="open or create a project note in your editor",
+        description="Open or create a durable note for an exact Taskwarrior project name.",
+    )
+    project.add_argument(
+        "project_name",
+        help="exact Taskwarrior project name, for example Finances.Expense",
+    )
 
-    for name in ("note-append", "chain-append"):
-        sub = subparsers.add_parser(name)
-        sub.add_argument("task_ref", help="task id, full uuid, or short uuid")
-        sub.add_argument("text", nargs="*", help="text to append")
+    project_show = subparsers.add_parser(
+        "project-show",
+        help="show project-note path and summary without editing",
+        description="Show whether a project note exists, where it lives, and a short preview.",
+    )
+    project_show.add_argument(
+        "project_name",
+        help="exact Taskwarrior project name, for example Finances.Expense",
+    )
 
-    project_append = subparsers.add_parser("project-append")
-    project_append.add_argument("project_name", help="exact Taskwarrior project name")
-    project_append.add_argument("text", nargs="*", help="text to append")
+    project_cat = subparsers.add_parser(
+        "project-cat",
+        help="print the full project note without opening an editor",
+        description="Print the full project note content for an exact Taskwarrior project name.",
+    )
+    project_cat.add_argument(
+        "project_name",
+        help="exact Taskwarrior project name, for example Finances.Expense",
+    )
 
-    add = subparsers.add_parser("add")
-    add.add_argument("--type", default="note", dest="event_type", help="event type label")
-    add.add_argument("task_ref", help="task id, full uuid, or short uuid")
-    add.add_argument("text", nargs="*", help="event text")
+    append_commands = {
+        "note-append": "append plain text to a task note",
+        "chain-append": "append plain text to a chain note",
+    }
+    for name, help_text in append_commands.items():
+        sub = subparsers.add_parser(name, help=help_text, description=help_text[:1].upper() + help_text[1:] + ".")
+        sub.add_argument(
+            "task_ref",
+            help="task ID, full UUID, or unique short UUID",
+        )
+        sub.add_argument(
+            "text",
+            nargs="*",
+            help="text to append; if omitted, read stdin",
+        )
 
-    search = subparsers.add_parser("search")
-    search.add_argument("query", help="search notes and event log")
+    project_append = subparsers.add_parser(
+        "project-append",
+        help="append plain text to a project note",
+        description="Append plain text to a project note without opening an editor.",
+    )
+    project_append.add_argument(
+        "project_name",
+        help="exact Taskwarrior project name, for example Finances.Expense",
+    )
+    project_append.add_argument(
+        "text",
+        nargs="*",
+        help="text to append; if omitted, read stdin",
+    )
+
+    add = subparsers.add_parser(
+        "add",
+        help="add a short event to the task annotation stream",
+        description=(
+            "Add a short event to the Taskwarrior annotation stream. "
+            "Text can come from arguments, stdin, or an editor fallback."
+        ),
+    )
+    add.add_argument(
+        "--type",
+        default="note",
+        dest="event_type",
+        help="event type label, for example note, status, decision, blocker",
+    )
+    add.add_argument(
+        "task_ref",
+        help="task ID, full UUID, or unique short UUID",
+    )
+    add.add_argument(
+        "text",
+        nargs="*",
+        help="event text; if omitted, read stdin or open the editor",
+    )
+
+    search = subparsers.add_parser(
+        "search",
+        help="search note files and logged events",
+        description="Search task notes, chain notes, project notes, and the logged event stream.",
+    )
+    search.add_argument("query", help="case-insensitive search text")
 
     return parser
 
@@ -80,8 +191,16 @@ def main(argv: list[str] | None = None) -> int:
             result = _run_note(ctx, args.task_ref)
         elif args.command == "chain":
             result = _run_chain(ctx, args.task_ref)
+        elif args.command == "task-cat":
+            result = _run_task_cat(ctx, args.task_ref)
+        elif args.command == "chain-cat":
+            result = _run_chain_cat(ctx, args.task_ref)
         elif args.command == "project":
             result = _run_project(ctx, args.project_name)
+        elif args.command == "project-show":
+            result = _run_project_show(ctx, args.project_name)
+        elif args.command == "project-cat":
+            result = _run_project_cat(ctx, args.project_name)
         elif args.command == "add":
             result = _run_add(ctx, args.task_ref, args.text, args.event_type)
         elif args.command == "note-append":
@@ -150,6 +269,64 @@ def _run_project(ctx, project_name: str) -> CommandResult:
             "opened": note.existed,
             "project": project_name,
         },
+    )
+
+
+def _run_project_show(ctx, project_name: str) -> CommandResult:
+    note_path = find_project_note(ctx.config, project_name)
+    if note_path is None:
+        return CommandResult(
+            command="project-show",
+            payload={
+                "project": project_name,
+                "path": str(project_note_path(ctx.config, project_name)),
+                "exists": False,
+            },
+        )
+
+    metadata, body = read_document(note_path)
+    return CommandResult(
+        command="project-show",
+        payload={
+            "project": project_name,
+            "path": str(note_path),
+            "exists": True,
+            "created": metadata.get("created"),
+            "updated": metadata.get("updated"),
+            "project_path": metadata.get("project_path") or [],
+            "body_preview": _body_preview(body),
+        },
+    )
+
+
+def _run_project_cat(ctx, project_name: str) -> CommandResult:
+    note_path = find_project_note(ctx.config, project_name)
+    if note_path is None:
+        raise RuntimeError(f"project note does not exist for {project_name}")
+    return _cat_result("project-cat", note_path, project=project_name)
+
+
+def _run_task_cat(ctx, task_ref: str) -> CommandResult:
+    task = ctx.taskwarrior.resolve_task(task_ref)
+    note_path = find_task_note(ctx.config, task)
+    if note_path is None:
+        raise RuntimeError(f"task note does not exist for {task.task_short_uuid}")
+    return _cat_result(
+        "task-cat",
+        note_path,
+        task_short_uuid=task.task_short_uuid,
+    )
+
+
+def _run_chain_cat(ctx, task_ref: str) -> CommandResult:
+    task = ctx.taskwarrior.resolve_task(task_ref)
+    note_path = find_chain_note(ctx.config, task)
+    if note_path is None:
+        raise RuntimeError(f"chain note does not exist for {task.task_short_uuid}")
+    return _cat_result(
+        "chain-cat",
+        note_path,
+        task_short_uuid=task.task_short_uuid,
     )
 
 
@@ -267,3 +444,22 @@ def _text_from_args(parts: list[str]) -> str:
     if not sys.stdin.isatty():
         return sys.stdin.read().strip()
     raise RuntimeError("no text supplied; provide text or pipe stdin")
+
+
+def _body_preview(body: str, width: int = 120) -> str:
+    text = " ".join(str(body or "").split())
+    if len(text) <= width:
+        return text
+    return text[: width - 3].rstrip() + "..."
+
+
+def _cat_result(command: str, note_path, **extra: str) -> CommandResult:
+    metadata, body = read_document(note_path)
+    payload = {
+        **extra,
+        "path": str(note_path),
+        "metadata": dict(metadata),
+        "body": body,
+        "content": note_path.read_text(encoding="utf-8"),
+    }
+    return CommandResult(command=command, payload=payload)

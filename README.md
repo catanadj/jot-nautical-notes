@@ -51,7 +51,11 @@ python3 -m pip install .
 jot doctor
 jot note <task-ref>
 jot chain <task-ref>
+jot task-cat <task-ref>
+jot chain-cat <task-ref>
 jot project <project-name>
+jot project-show <project-name>
+jot project-cat <project-name>
 jot note-append <task-ref> [text...]
 jot chain-append <task-ref> [text...]
 jot project-append <project-name> [text...]
@@ -107,7 +111,11 @@ Chain notes are keyed by `chainID`.
 ```bash
 jot note 42
 jot chain 42
+jot task-cat 42
+jot chain-cat 42
 jot project Finances.Expense
+jot project-show Finances.Expense
+jot project-cat Finances.Expense
 jot note-append 42 Followed up with vendor
 jot project-append Finances.Expense waiting on reimbursement rules
 jot add --type status 42 waiting on vendor
