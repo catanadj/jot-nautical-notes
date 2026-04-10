@@ -29,6 +29,56 @@ def load_or_rebuild_index(config: AppConfig) -> dict[str, Any]:
     return data
 
 
+def read_index_status(config: AppConfig) -> dict[str, Any]:
+    path = index_path(config)
+    if not path.exists():
+        return {
+            "exists": False,
+            "valid": False,
+            "updated": None,
+            "counts": {
+                "tasks": 0,
+                "chains": 0,
+                "projects": 0,
+            },
+        }
+    try:
+        with path.open("r", encoding="utf-8") as handle:
+            data = json.load(handle)
+    except Exception:
+        return {
+            "exists": True,
+            "valid": False,
+            "updated": None,
+            "counts": {
+                "tasks": 0,
+                "chains": 0,
+                "projects": 0,
+            },
+        }
+    if not _valid_index_shape(data):
+        return {
+            "exists": True,
+            "valid": False,
+            "updated": str(data.get("updated") or "").strip() or None if isinstance(data, dict) else None,
+            "counts": {
+                "tasks": 0,
+                "chains": 0,
+                "projects": 0,
+            },
+        }
+    return {
+        "exists": True,
+        "valid": True,
+        "updated": str(data.get("updated") or "").strip() or None,
+        "counts": {
+            "tasks": len(data.get("tasks", {})),
+            "chains": len(data.get("chains", {})),
+            "projects": len(data.get("projects", {})),
+        },
+    }
+
+
 def save_index(config: AppConfig, data: dict[str, Any]) -> None:
     data["updated"] = iso_now()
     path = index_path(config)

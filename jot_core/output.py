@@ -17,6 +17,15 @@ def emit_result(result: CommandResult, *, json_mode: bool = False) -> None:
     if command == "doctor":
         _emit_doctor(payload.get("checks", []))
         return
+    if command == "paths":
+        _emit_paths(payload)
+        return
+    if command == "rebuild-index":
+        _emit_rebuild_index(payload)
+        return
+    if command == "stats":
+        _emit_stats(payload)
+        return
     if command in {"note", "chain", "project"}:
         _emit_note_like(command, payload)
         return
@@ -55,6 +64,59 @@ def _emit_doctor(checks: list[dict[str, Any]]) -> None:
         sys.stdout.write(f"[{label}] {name}: {detail}\n")
 
 
+def _emit_paths(payload: dict[str, Any]) -> None:
+    sys.stdout.write("Paths\n\n")
+    for key in (
+        "config_path",
+        "root_dir",
+        "tasks_dir",
+        "chains_dir",
+        "projects_dir",
+        "templates_dir",
+        "index_path",
+        "ops_path",
+    ):
+        _emit_field(key, payload.get(key), indent=0)
+
+
+def _emit_rebuild_index(payload: dict[str, Any]) -> None:
+    sys.stdout.write("Index rebuilt\n\n")
+    _emit_field("index", payload.get("index_path"), indent=0)
+    _emit_field("updated", payload.get("updated"), indent=0)
+    sys.stdout.write("\nCounts:\n")
+    counts = payload.get("counts") or {}
+    for key in ("tasks", "chains", "projects"):
+        _emit_field(key, counts.get(key), indent=2)
+
+
+def _emit_stats(payload: dict[str, Any]) -> None:
+    notes = payload.get("notes") or {}
+    ops = payload.get("ops") or {}
+    index = payload.get("index") or {}
+
+    sys.stdout.write("Stats\n\n")
+    sys.stdout.write("Notes:\n")
+    for key in ("tasks", "chains", "projects"):
+        _emit_field(key, notes.get(key), indent=2)
+
+    sys.stdout.write("\nOps:\n")
+    _emit_field("path", ops.get("path"), indent=2)
+    _emit_field("entries", ops.get("entries"), indent=2)
+    _emit_field("event_add", ops.get("event_add"), indent=2)
+    _emit_field("latest", ops.get("latest"), indent=2)
+
+    sys.stdout.write("\nIndex:\n")
+    _emit_field("path", index.get("path"), indent=2)
+    _emit_field("exists", "yes" if index.get("exists") else "no", indent=2)
+    _emit_field("valid", "yes" if index.get("valid") else "no", indent=2)
+    _emit_field("stale", "yes" if index.get("stale") else "no", indent=2)
+    _emit_field("updated", index.get("updated"), indent=2)
+    counts = index.get("counts") or {}
+    sys.stdout.write("  counts:\n")
+    for key in ("tasks", "chains", "projects"):
+        _emit_field(key, counts.get(key), indent=4)
+
+
 def _emit_note_like(command: str, payload: dict[str, Any]) -> None:
     action = "Opened" if payload.get("opened") else "Created"
     kind = {
@@ -77,21 +139,26 @@ def _emit_append_like(command: str, payload: dict[str, Any]) -> None:
 
 
 def _emit_project_show(payload: dict[str, Any]) -> None:
-    sys.stdout.write(f"Project: {payload['project']}\n")
-    exists = bool(payload.get("exists"))
-    sys.stdout.write(f"Project note: {payload['path'] if exists else '(none)'}\n")
+    sys.stdout.write(f"Project {payload['project']}\n\n")
+    note = payload.get("note") or {}
+    exists = bool(note.get("exists"))
+    path = note.get("path")
+    sys.stdout.write("Note:\n")
     if not exists:
-        sys.stdout.write(f"Expected path: {payload['path']}\n")
+        if path:
+            _emit_field("exists", "no", indent=2)
+            _emit_field("expected", path, indent=2)
         return
-    created = payload.get("created")
-    updated = payload.get("updated")
+    _emit_field("path", path, indent=2)
+    created = note.get("created")
+    updated = note.get("updated")
     if created:
-        sys.stdout.write(f"Created: {created}\n")
+        _emit_field("created", created, indent=2)
     if updated:
-        sys.stdout.write(f"Updated: {updated}\n")
-    preview = str(payload.get("body_preview") or "").strip()
+        _emit_field("updated", updated, indent=2)
+    preview = str(note.get("preview") or "").strip()
     if preview:
-        sys.stdout.write(f"Preview: {preview}\n")
+        _emit_field("preview", preview, indent=2)
 
 
 def _emit_cat(payload: dict[str, Any]) -> None:
@@ -105,16 +172,9 @@ def _emit_add(payload: dict[str, Any]) -> None:
 
 
 def _emit_list(payload: dict[str, Any]) -> None:
-    sys.stdout.write(f"Task {payload['task_short_uuid']}: {payload['description']}\n")
-    task_note = payload.get("task_note") or "(none)"
-    sys.stdout.write(f"Task note: {task_note}\n")
-    chain_note = payload.get("chain_note")
-    if chain_note:
-        sys.stdout.write(f"Chain note: {chain_note}\n")
-    project_note = payload.get("project_note")
-    if project_note:
-        sys.stdout.write(f"Project note: {project_note}\n")
+    _emit_show(payload)
     events = payload.get("events") or []
+    sys.stdout.write("\n")
     sys.stdout.write("Events:\n")
     if not events:
         sys.stdout.write("  (none)\n")
@@ -122,28 +182,40 @@ def _emit_list(payload: dict[str, Any]) -> None:
     for item in events:
         entry = item.get("entry") or "unknown"
         description = item.get("description") or ""
-        sys.stdout.write(f"  [{entry}] {description}\n")
+        sys.stdout.write(f"  {entry}  {description}\n")
 
 
 def _emit_show(payload: dict[str, Any]) -> None:
-    sys.stdout.write(f"Task {payload['task_short_uuid']}: {payload['description']}\n")
-    task_note = payload.get("task_note") or "(none)"
-    sys.stdout.write(f"Task note: {task_note}\n")
-    chain_note = payload.get("chain_note")
-    if chain_note:
-        sys.stdout.write(f"Chain note: {chain_note}\n")
-    project_note = payload.get("project_note")
-    if project_note:
-        sys.stdout.write(f"Project note: {project_note}\n")
+    task = payload.get("task") or {}
+    notes = payload.get("notes") or {}
+    sys.stdout.write(f"Task {task.get('short_uuid')}\n")
+    _emit_field("description", task.get("description"), indent=0)
+    project = task.get("project")
+    if project:
+        _emit_field("project", project, indent=0)
+    tags = task.get("tags") or []
+    if tags:
+        _emit_field("tags", ", ".join(tags), indent=0)
+    sys.stdout.write("\n")
+    sys.stdout.write("Notes:\n")
+    _emit_note_ref("task", notes.get("task") or {})
+    _emit_note_ref("chain", notes.get("chain") or {})
+    _emit_note_ref("project", notes.get("project") or {})
     nautical = payload.get("nautical") or {}
     if nautical:
+        sys.stdout.write("\n")
         sys.stdout.write("Nautical:\n")
-        for key, value in nautical.items():
-            sys.stdout.write(f"  {key}: {value}\n")
+        for key, value in sorted(nautical.items()):
+            _emit_field(key, value, indent=2)
 
 
 def _emit_export(payload: dict[str, Any]) -> None:
     _emit_show(payload)
+    exported_at = payload.get("exported_at")
+    if exported_at:
+        sys.stdout.write("\n")
+        _emit_field("exported", exported_at, indent=0)
+        sys.stdout.write("\n")
     events = payload.get("events") or []
     sys.stdout.write("Events:\n")
     if not events:
@@ -152,7 +224,7 @@ def _emit_export(payload: dict[str, Any]) -> None:
     for item in events:
         entry = item.get("entry") or "unknown"
         description = item.get("description") or ""
-        sys.stdout.write(f"  [{entry}] {description}\n")
+        sys.stdout.write(f"  {entry}  {description}\n")
 
 
 def _emit_search(payload: dict[str, Any]) -> None:
@@ -180,3 +252,24 @@ def _emit_search(payload: dict[str, Any]) -> None:
 
 def warn(message: str) -> None:
     sys.stderr.write(f"[jot] {message}\n")
+
+
+def _emit_note_ref(label: str, item: dict[str, Any]) -> None:
+    available = bool(item.get("available"))
+    exists = bool(item.get("exists"))
+    path = item.get("path")
+    if not available:
+        _emit_field(label, "(n/a)", indent=2)
+        return
+    if exists:
+        _emit_field(label, path, indent=2)
+        return
+    _emit_field(label, "(none)", indent=2)
+    if path:
+        _emit_field("expected", path, indent=4)
+
+
+def _emit_field(label: str, value: Any, *, indent: int = 0, width: int = 11) -> None:
+    pad = " " * indent
+    text = "" if value is None else str(value)
+    sys.stdout.write(f"{pad}{label:<{width}}: {text}\n")

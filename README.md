@@ -49,6 +49,9 @@ python3 -m pip install .
 
 ```bash
 jot doctor
+jot paths
+jot rebuild-index
+jot stats
 jot note <task-ref>
 jot chain <task-ref>
 jot task-cat <task-ref>
@@ -116,6 +119,9 @@ jot chain-cat 42
 jot project Finances.Expense
 jot project-show Finances.Expense
 jot project-cat Finances.Expense
+jot paths
+jot rebuild-index
+jot stats
 jot note-append 42 Followed up with vendor
 jot project-append Finances.Expense waiting on reimbursement rules
 jot add --type status 42 waiting on vendor

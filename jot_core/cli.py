@@ -9,9 +9,11 @@ from .doctor import run_doctor
 from .editor import open_in_editor
 from .events import collect_event_text, format_event_text, validate_event_type
 from .frontmatter import read_document
+from .index import rebuild_index, read_index_status, save_index
 from .models import CommandResult
-from .nautical import nautical_summary
+from .nautical import chain_id_for_task, nautical_summary
 from .notes import (
+    chain_note_path,
     ensure_chain_note,
     ensure_project_note,
     ensure_task_note,
@@ -19,7 +21,9 @@ from .notes import (
     find_project_note,
     find_task_note,
     project_note_path,
+    task_note_path,
 )
+from .ops import iso_now, read_ops
 from .output import emit_result, warn
 from .search import search_all
 from .storage import (
@@ -64,6 +68,21 @@ def build_parser() -> argparse.ArgumentParser:
         "doctor",
         help="check configuration, storage paths, and Taskwarrior availability",
         description="Validate jot configuration, storage paths, and Taskwarrior access.",
+    )
+    subparsers.add_parser(
+        "paths",
+        help="show the resolved jot config and storage paths",
+        description="Show the resolved jot configuration and storage directories.",
+    )
+    subparsers.add_parser(
+        "rebuild-index",
+        help="rebuild index.json from note files and ops log",
+        description="Rebuild index.json from note files and the append-only ops log.",
+    )
+    subparsers.add_parser(
+        "stats",
+        help="show local jot note, ops, and index statistics",
+        description="Show local jot note counts, event-log size, and index status without querying Taskwarrior.",
     )
 
     task_commands = {
@@ -187,6 +206,12 @@ def main(argv: list[str] | None = None) -> int:
     try:
         if args.command == "doctor":
             result = run_doctor(ctx.config, ctx.taskwarrior)
+        elif args.command == "paths":
+            result = _run_paths(ctx)
+        elif args.command == "rebuild-index":
+            result = _run_rebuild_index(ctx)
+        elif args.command == "stats":
+            result = _run_stats(ctx)
         elif args.command == "note":
             result = _run_note(ctx, args.task_ref)
         elif args.command == "chain":
@@ -243,6 +268,72 @@ def _run_note(ctx, task_ref: str) -> CommandResult:
     )
 
 
+def _run_paths(ctx) -> CommandResult:
+    config = ctx.config
+    return CommandResult(
+        command="paths",
+        payload={
+            "config_path": str(config.config_path),
+            "root_dir": str(config.root_dir),
+            "tasks_dir": str(config.tasks_dir),
+            "chains_dir": str(config.chains_dir),
+            "projects_dir": str(config.projects_dir),
+            "templates_dir": str(config.templates_dir),
+            "index_path": str(config.root_dir / "index.json"),
+            "ops_path": str(config.root_dir / "ops.jsonl"),
+        },
+    )
+
+
+def _run_rebuild_index(ctx) -> CommandResult:
+    data = rebuild_index(ctx.config)
+    save_index(ctx.config, data)
+    return CommandResult(
+        command="rebuild-index",
+        payload={
+            "index_path": str(ctx.config.root_dir / "index.json"),
+            "updated": data.get("updated"),
+            "counts": {
+                "tasks": len(data.get("tasks", {})),
+                "chains": len(data.get("chains", {})),
+                "projects": len(data.get("projects", {})),
+            },
+        },
+    )
+
+
+def _run_stats(ctx) -> CommandResult:
+    task_count = len(list(ctx.config.tasks_dir.glob("*.md")))
+    chain_count = len(list(ctx.config.chains_dir.glob("*.md")))
+    project_count = len(list(ctx.config.projects_dir.glob("**/index.md")))
+    ops_items = read_ops(ctx.config)
+    index_status = read_index_status(ctx.config)
+    note_counts = {
+        "tasks": task_count,
+        "chains": chain_count,
+        "projects": project_count,
+    }
+    latest_op_ts = _latest_op_timestamp(ops_items)
+    stale = _index_is_stale(index_status, note_counts, latest_op_ts)
+    return CommandResult(
+        command="stats",
+        payload={
+            "notes": note_counts,
+            "ops": {
+                "path": str(ctx.config.root_dir / "ops.jsonl"),
+                "entries": len(ops_items),
+                "event_add": sum(1 for item in ops_items if item.get("op") == "event_add"),
+                "latest": latest_op_ts,
+            },
+            "index": {
+                "path": str(ctx.config.root_dir / "index.json"),
+                **index_status,
+                "stale": stale,
+            },
+        },
+    )
+
+
 def _run_chain(ctx, task_ref: str) -> CommandResult:
     task = ctx.taskwarrior.resolve_task(task_ref)
     note = ensure_chain_note(ctx.config, task)
@@ -274,13 +365,14 @@ def _run_project(ctx, project_name: str) -> CommandResult:
 
 def _run_project_show(ctx, project_name: str) -> CommandResult:
     note_path = find_project_note(ctx.config, project_name)
+    note_summary = _project_note_summary(ctx, project_name)
     if note_path is None:
         return CommandResult(
             command="project-show",
             payload={
+                "kind": "project-summary",
                 "project": project_name,
-                "path": str(project_note_path(ctx.config, project_name)),
-                "exists": False,
+                "note": note_summary,
             },
         )
 
@@ -288,13 +380,15 @@ def _run_project_show(ctx, project_name: str) -> CommandResult:
     return CommandResult(
         command="project-show",
         payload={
+            "kind": "project-summary",
             "project": project_name,
-            "path": str(note_path),
-            "exists": True,
-            "created": metadata.get("created"),
-            "updated": metadata.get("updated"),
-            "project_path": metadata.get("project_path") or [],
-            "body_preview": _body_preview(body),
+            "note": {
+                **note_summary,
+                "created": metadata.get("created"),
+                "updated": metadata.get("updated"),
+                "project_path": metadata.get("project_path") or [],
+                "preview": _body_preview(body),
+            },
         },
     )
 
@@ -340,25 +434,27 @@ def _run_export(ctx, task_ref: str) -> CommandResult:
     task = ctx.taskwarrior.resolve_task(task_ref)
     payload = _task_summary_payload(ctx, task)
     payload["events"] = ctx.taskwarrior.annotations_for_task(task)
+    payload["exported_at"] = iso_now()
     return CommandResult(command="export", payload=payload)
 
 
 def _task_summary_payload(ctx, task) -> dict:
-    task_note = find_task_note(ctx.config, task)
     payload: dict[str, object] = {
-        "task_short_uuid": task.task_short_uuid,
-        "description": task.description,
-        "task_note": str(task_note) if task_note is not None else None,
+        "kind": "task-summary",
+        "task": {
+            "uuid": task.task_uuid,
+            "short_uuid": task.task_short_uuid,
+            "description": task.description,
+            "project": task.project or None,
+            "tags": list(task.tags),
+        },
+        "notes": {
+            "task": _task_note_summary(ctx, task),
+            "chain": _chain_note_summary(ctx, task),
+            "project": _project_note_summary(ctx, task.project),
+        },
         "nautical": nautical_summary(task.task),
     }
-    if task.project:
-        project_note = find_project_note(ctx.config, task.project)
-        payload["project"] = task.project
-        if project_note is not None:
-            payload["project_note"] = str(project_note)
-    chain_note = find_chain_note(ctx.config, task)
-    if chain_note is not None:
-        payload["chain_note"] = str(chain_note)
     return payload
 
 
@@ -463,3 +559,65 @@ def _cat_result(command: str, note_path, **extra: str) -> CommandResult:
         "content": note_path.read_text(encoding="utf-8"),
     }
     return CommandResult(command=command, payload=payload)
+
+
+def _latest_op_timestamp(items: list[dict[str, object]]) -> str | None:
+    timestamps = [str(item.get("ts") or "").strip() for item in items if str(item.get("ts") or "").strip()]
+    return max(timestamps) if timestamps else None
+
+
+def _index_is_stale(index_status: dict[str, object], note_counts: dict[str, int], latest_op_ts: str | None) -> bool:
+    if not bool(index_status.get("exists")) or not bool(index_status.get("valid")):
+        return True
+    counts = index_status.get("counts") if isinstance(index_status.get("counts"), dict) else {}
+    for key, value in note_counts.items():
+        if counts.get(key) != value:
+            return True
+    updated = str(index_status.get("updated") or "").strip() or None
+    if latest_op_ts and (not updated or latest_op_ts > updated):
+        return True
+    return False
+
+
+def _task_note_summary(ctx, task) -> dict[str, object]:
+    note_path = find_task_note(ctx.config, task)
+    expected = task_note_path(ctx.config, task)
+    return {
+        "available": True,
+        "exists": note_path is not None,
+        "path": str(note_path or expected),
+    }
+
+
+def _chain_note_summary(ctx, task) -> dict[str, object]:
+    chain_id = chain_id_for_task(task.task)
+    if not chain_id:
+        return {
+            "available": False,
+            "exists": False,
+            "path": None,
+        }
+    note_path = find_chain_note(ctx.config, task)
+    expected = chain_note_path(ctx.config, chain_id, task.description or chain_id)
+    return {
+        "available": True,
+        "exists": note_path is not None,
+        "path": str(note_path or expected),
+    }
+
+
+def _project_note_summary(ctx, project_name: str | None) -> dict[str, object]:
+    normalized = str(project_name or "").strip()
+    if not normalized:
+        return {
+            "available": False,
+            "exists": False,
+            "path": None,
+        }
+    note_path = find_project_note(ctx.config, normalized)
+    expected = project_note_path(ctx.config, normalized)
+    return {
+        "available": True,
+        "exists": note_path is not None,
+        "path": str(note_path or expected),
+    }

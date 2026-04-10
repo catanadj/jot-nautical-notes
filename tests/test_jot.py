@@ -121,6 +121,15 @@ class FrontMatterTests(unittest.TestCase):
 
 
 class CliIntegrationTests(JotCliTestCase):
+    def test_paths_reports_resolved_storage_locations(self) -> None:
+        result = self.run_jot("--json", "paths")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertTrue(payload["root_dir"].endswith(".task/jot"))
+        self.assertTrue(payload["projects_dir"].endswith(".task/jot/projects"))
+        self.assertTrue(payload["index_path"].endswith(".task/jot/index.json"))
+        self.assertTrue(payload["ops_path"].endswith(".task/jot/ops.jsonl"))
+
     def test_note_append_updates_index_and_ops(self) -> None:
         task = {
             "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
@@ -179,10 +188,11 @@ class CliIntegrationTests(JotCliTestCase):
         show_result = self.run_jot("--json", "project-show", "finance.audit")
         self.assertEqual(show_result.returncode, 0, show_result.stderr)
         show_payload = json.loads(show_result.stdout)
-        self.assertTrue(show_payload["exists"])
+        self.assertEqual(show_payload["kind"], "project-summary")
         self.assertEqual(show_payload["project"], "finance.audit")
-        self.assertTrue(show_payload["path"].endswith("projects/finance/audit/index.md"))
-        self.assertIn("Purpose", show_payload["body_preview"])
+        self.assertTrue(show_payload["note"]["exists"])
+        self.assertTrue(show_payload["note"]["path"].endswith("projects/finance/audit/index.md"))
+        self.assertIn("Purpose", show_payload["note"]["preview"])
 
         cat_result = self.run_jot("project-cat", "finance.audit")
         self.assertEqual(cat_result.returncode, 0, cat_result.stderr)
@@ -192,12 +202,19 @@ class CliIntegrationTests(JotCliTestCase):
         missing_show = self.run_jot("--json", "project-show", "missing.project")
         self.assertEqual(missing_show.returncode, 0, missing_show.stderr)
         missing_payload = json.loads(missing_show.stdout)
-        self.assertFalse(missing_payload["exists"])
-        self.assertTrue(missing_payload["path"].endswith("projects/missing/project/index.md"))
+        self.assertFalse(missing_payload["note"]["exists"])
+        self.assertTrue(missing_payload["note"]["path"].endswith("projects/missing/project/index.md"))
 
         missing_cat = self.run_jot("project-cat", "missing.project")
         self.assertNotEqual(missing_cat.returncode, 0)
         self.assertIn("project note does not exist", missing_cat.stderr)
+
+        text_show = self.run_jot("project-show", "finance.audit")
+        self.assertEqual(text_show.returncode, 0, text_show.stderr)
+        self.assertIn("Project finance.audit", text_show.stdout)
+        self.assertIn("Note:", text_show.stdout)
+        self.assertIn("path", text_show.stdout)
+        self.assertIn("preview", text_show.stdout)
 
     def test_task_and_chain_cat_contracts(self) -> None:
         task = {
@@ -353,12 +370,18 @@ class CliIntegrationTests(JotCliTestCase):
         result = self.run_jot("--json", "export", "1")
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["task_short_uuid"], "2d6d7d7d")
+        self.assertEqual(payload["kind"], "task-summary")
+        self.assertEqual(payload["task"]["short_uuid"], "2d6d7d7d")
+        self.assertEqual(payload["task"]["uuid"], "2d6d7d7d-1111-2222-3333-444444444444")
         self.assertEqual(len(payload["events"]), 2)
         self.assertIn("nautical", payload)
-        self.assertTrue(payload["task_note"].endswith("2d6d7d7d--fix-billing-discrepancy.md"))
-        self.assertTrue(payload["chain_note"].endswith("a4bf5egh--monthly-review.md"))
-        self.assertTrue(payload["project_note"].endswith("projects/finance/audit/index.md"))
+        self.assertIn("exported_at", payload)
+        self.assertTrue(payload["notes"]["task"]["exists"])
+        self.assertTrue(payload["notes"]["task"]["path"].endswith("2d6d7d7d--fix-billing-discrepancy.md"))
+        self.assertTrue(payload["notes"]["chain"]["exists"])
+        self.assertTrue(payload["notes"]["chain"]["path"].endswith("a4bf5egh--monthly-review.md"))
+        self.assertTrue(payload["notes"]["project"]["exists"])
+        self.assertTrue(payload["notes"]["project"]["path"].endswith("projects/finance/audit/index.md"))
 
     def test_search_finds_notes_and_events_and_has_json_contract(self) -> None:
         task = {
@@ -409,9 +432,42 @@ class CliIntegrationTests(JotCliTestCase):
         result = self.run_jot("--json", "list", "1")
         self.assertEqual(result.returncode, 0, result.stderr)
         payload = json.loads(result.stdout)
-        self.assertEqual(payload["task_short_uuid"], "2d6d7d7d")
+        self.assertEqual(payload["kind"], "task-summary")
+        self.assertEqual(payload["task"]["short_uuid"], "2d6d7d7d")
         self.assertEqual(payload["events"][0]["description"], "status: waiting on vendor")
-        self.assertTrue(payload["project_note"].endswith("projects/finance/audit/index.md"))
+        self.assertTrue(payload["notes"]["project"]["exists"])
+        self.assertTrue(payload["notes"]["project"]["path"].endswith("projects/finance/audit/index.md"))
+
+    def test_show_json_contract_is_summary_only(self) -> None:
+        task = {
+            "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
+            "description": "Fix billing discrepancy",
+            "project": "finance.audit",
+            "tags": ["ann"],
+            "chainID": "a4bf5egh",
+            "link": 3,
+            "anchor": "m:last-fri",
+            "anchor_mode": "skip",
+            "annotations": [{"entry": "20260405T171501Z", "description": "status: waiting on vendor"}],
+        }
+        self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
+        self.run_jot("project-append", "finance.audit", "project context")
+
+        result = self.run_jot("--json", "show", "1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["kind"], "task-summary")
+        self.assertEqual(payload["task"]["short_uuid"], "2d6d7d7d")
+        self.assertNotIn("events", payload)
+        self.assertTrue(payload["notes"]["task"]["available"])
+        self.assertTrue(payload["notes"]["project"]["exists"])
+
+        text_result = self.run_jot("show", "1")
+        self.assertEqual(text_result.returncode, 0, text_result.stderr)
+        self.assertIn("Task 2d6d7d7d", text_result.stdout)
+        self.assertIn("description", text_result.stdout)
+        self.assertIn("Notes:", text_result.stdout)
+        self.assertIn("Nautical:", text_result.stdout)
 
     def test_corrupt_index_is_rebuilt(self) -> None:
         task = {
@@ -457,6 +513,167 @@ class CliIntegrationTests(JotCliTestCase):
         rebuilt = json.loads((jot_root / "index.json").read_text(encoding="utf-8"))
         self.assertIn("2d6d7d7d", rebuilt["tasks"])
         self.assertEqual(rebuilt["tasks"]["2d6d7d7d"]["chain_id"], "a4bf5egh")
+
+    def test_rebuild_index_command_reports_counts(self) -> None:
+        jot_root = self.home / ".task" / "jot"
+        (jot_root / "tasks").mkdir(parents=True, exist_ok=True)
+        (jot_root / "chains").mkdir(parents=True, exist_ok=True)
+        (jot_root / "projects" / "finance" / "audit").mkdir(parents=True, exist_ok=True)
+
+        (jot_root / "tasks" / "2d6d7d7d--fix-billing-discrepancy.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: task-note
+                task_short_uuid: 2d6d7d7d
+                description: Fix billing discrepancy
+                project: finance.audit
+                tags:
+                  - ann
+                chain_id: a4bf5egh
+                created: 2026-04-05T12:00:00Z
+                updated: 2026-04-05T12:00:00Z
+                ---
+
+                # Fix billing discrepancy
+                """
+            ),
+            encoding="utf-8",
+        )
+        (jot_root / "chains" / "a4bf5egh--monthly-review.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: chain-note
+                chain_id: a4bf5egh
+                description: Monthly review
+                created: 2026-04-05T12:00:00Z
+                updated: 2026-04-05T12:00:00Z
+                ---
+
+                # Monthly review
+                """
+            ),
+            encoding="utf-8",
+        )
+        (jot_root / "projects" / "finance" / "audit" / "index.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: project-note
+                project: finance.audit
+                project_path:
+                  - finance
+                  - audit
+                created: 2026-04-05T12:00:00Z
+                updated: 2026-04-05T12:00:00Z
+                ---
+
+                # finance.audit
+                """
+            ),
+            encoding="utf-8",
+        )
+        (jot_root / "index.json").write_text("broken\n", encoding="utf-8")
+
+        result = self.run_jot("--json", "rebuild-index")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["counts"]["tasks"], 1)
+        self.assertEqual(payload["counts"]["chains"], 1)
+        self.assertEqual(payload["counts"]["projects"], 1)
+        self.assertTrue(payload["index_path"].endswith(".task/jot/index.json"))
+
+    def test_stats_reports_note_ops_and_index_status(self) -> None:
+        jot_root = self.home / ".task" / "jot"
+        (jot_root / "tasks").mkdir(parents=True, exist_ok=True)
+        (jot_root / "chains").mkdir(parents=True, exist_ok=True)
+        (jot_root / "projects" / "finance" / "audit").mkdir(parents=True, exist_ok=True)
+
+        (jot_root / "tasks" / "2d6d7d7d--fix-billing-discrepancy.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: task-note
+                task_short_uuid: 2d6d7d7d
+                description: Fix billing discrepancy
+                project: finance.audit
+                tags:
+                  - ann
+                chain_id: a4bf5egh
+                created: 2026-04-05T12:00:00Z
+                updated: 2026-04-05T12:00:00Z
+                ---
+
+                # Fix billing discrepancy
+                """
+            ),
+            encoding="utf-8",
+        )
+        (jot_root / "chains" / "a4bf5egh--monthly-review.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: chain-note
+                chain_id: a4bf5egh
+                description: Monthly review
+                created: 2026-04-05T12:00:00Z
+                updated: 2026-04-05T12:00:00Z
+                ---
+
+                # Monthly review
+                """
+            ),
+            encoding="utf-8",
+        )
+        (jot_root / "projects" / "finance" / "audit" / "index.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: project-note
+                project: finance.audit
+                project_path:
+                  - finance
+                  - audit
+                created: 2026-04-05T12:00:00Z
+                updated: 2026-04-05T12:00:00Z
+                ---
+
+                # finance.audit
+                """
+            ),
+            encoding="utf-8",
+        )
+        (jot_root / "ops.jsonl").write_text(
+            '{"ts":"2026-04-05T12:00:00Z","op":"event_add","ok":true,"task_short_uuid":"2d6d7d7d","annotation":"status: waiting on vendor"}\n',
+            encoding="utf-8",
+        )
+        (jot_root / "index.json").write_text(
+            textwrap.dedent(
+                """\
+                {
+                  "version": 1,
+                  "updated": "2026-04-05T11:00:00Z",
+                  "tasks": {},
+                  "chains": {},
+                  "projects": {}
+                }
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        result = self.run_jot("--json", "stats")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["notes"]["tasks"], 1)
+        self.assertEqual(payload["notes"]["chains"], 1)
+        self.assertEqual(payload["notes"]["projects"], 1)
+        self.assertEqual(payload["ops"]["entries"], 1)
+        self.assertEqual(payload["ops"]["event_add"], 1)
+        self.assertTrue(payload["index"]["exists"])
+        self.assertTrue(payload["index"]["valid"])
+        self.assertTrue(payload["index"]["stale"])
 
     def test_ambiguous_short_uuid_returns_error(self) -> None:
         task_a = {
