@@ -29,6 +29,9 @@ from .output import emit_result, warn
 from .report import list_project_notes, recent_activity
 from .search import normalize_chain_id, normalize_kinds, normalize_project, search_all
 from .storage import (
+    add_to_chain_heading_storage,
+    add_to_project_heading_storage,
+    add_to_task_heading_storage,
     append_chain_note_storage,
     append_project_note_storage,
     append_task_note_storage,
@@ -197,6 +200,43 @@ def build_parser() -> argparse.ArgumentParser:
         help="text to append; if omitted, read stdin",
     )
 
+    add_to = subparsers.add_parser(
+        "add-to",
+        help="add a timestamped entry under a note heading",
+        description=(
+            "Add a timestamped bullet entry under a heading in a task, chain, or project note. "
+            "Heading matching is fuzzy by default."
+        ),
+    )
+    add_to.add_argument(
+        "note_kind",
+        choices=("task", "chain", "project"),
+        help="target note kind",
+    )
+    add_to.add_argument(
+        "note_ref",
+        help="task ref for task/chain or project name for project",
+    )
+    add_to.add_argument(
+        "--heading",
+        required=True,
+        help="target heading title",
+    )
+    add_to.add_argument(
+        "--create-heading",
+        action="store_true",
+        help="create the heading when no match is found",
+    )
+    add_to.add_argument(
+        "--heading-exact",
+        action="store_true",
+        help="disable fuzzy matching and require an exact heading match",
+    )
+    add_to.add_argument(
+        "--text",
+        help="entry text; if omitted, read stdin",
+    )
+
     add = subparsers.add_parser(
         "add",
         help="add a short event to the task annotation stream",
@@ -295,6 +335,8 @@ def main(argv: list[str] | None = None) -> int:
             result = _run_chain_append(ctx, args.task_ref, _text_from_args(args.text))
         elif args.command == "project-append":
             result = _run_project_append(ctx, args.project_name, _text_from_args(args.text))
+        elif args.command == "add-to":
+            result = _run_add_to(ctx, args)
         elif args.command == "list":
             result = _run_list(ctx, args.task_ref)
         elif args.command == "show":
@@ -614,6 +656,78 @@ def _run_project_append(ctx, project_name: str, text: str) -> CommandResult:
     )
 
 
+def _run_add_to(ctx, args) -> CommandResult:
+    text = _text_from_optional(args.text)
+    if args.note_kind == "task":
+        task = ctx.taskwarrior.resolve_task(args.note_ref)
+        result = add_to_task_heading_storage(
+            ctx.config,
+            task,
+            heading=args.heading,
+            text=text,
+            create_heading=bool(args.create_heading),
+            exact=bool(args.heading_exact),
+        )
+        return CommandResult(
+            command="add-to",
+            payload={
+                "note_kind": "task",
+                "task_short_uuid": task.task_short_uuid,
+                "path": str(result["note_path"]),
+                "opened": bool(result["opened"]),
+                "heading": result["heading"],
+                "heading_match": result["heading_match"],
+                "timestamp": result["timestamp"],
+                "entry": result["entry"],
+            },
+        )
+    if args.note_kind == "chain":
+        task = ctx.taskwarrior.resolve_task(args.note_ref)
+        result = add_to_chain_heading_storage(
+            ctx.config,
+            task,
+            heading=args.heading,
+            text=text,
+            create_heading=bool(args.create_heading),
+            exact=bool(args.heading_exact),
+        )
+        return CommandResult(
+            command="add-to",
+            payload={
+                "note_kind": "chain",
+                "task_short_uuid": task.task_short_uuid,
+                "path": str(result["note_path"]),
+                "opened": bool(result["opened"]),
+                "heading": result["heading"],
+                "heading_match": result["heading_match"],
+                "timestamp": result["timestamp"],
+                "entry": result["entry"],
+            },
+        )
+    project_name = str(args.note_ref).strip()
+    result = add_to_project_heading_storage(
+        ctx.config,
+        project_name,
+        heading=args.heading,
+        text=text,
+        create_heading=bool(args.create_heading),
+        exact=bool(args.heading_exact),
+    )
+    return CommandResult(
+        command="add-to",
+        payload={
+            "note_kind": "project",
+            "project": project_name,
+            "path": str(result["note_path"]),
+            "opened": bool(result["opened"]),
+            "heading": result["heading"],
+            "heading_match": result["heading_match"],
+            "timestamp": result["timestamp"],
+            "entry": result["entry"],
+        },
+    )
+
+
 def _run_search(
     ctx,
     query: str,
@@ -637,6 +751,16 @@ def _run_search(
 def _text_from_args(parts: list[str]) -> str:
     if parts:
         return " ".join(parts).strip()
+    if not sys.stdin.isatty():
+        return sys.stdin.read().strip()
+    raise RuntimeError("no text supplied; provide text or pipe stdin")
+
+
+def _text_from_optional(value: str | None) -> str:
+    if value is not None:
+        text = str(value).strip()
+        if text:
+            return text
     if not sys.stdin.isatty():
         return sys.stdin.read().strip()
     raise RuntimeError("no text supplied; provide text or pipe stdin")

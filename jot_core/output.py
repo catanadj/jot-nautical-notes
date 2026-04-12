@@ -44,6 +44,9 @@ def emit_result(result: CommandResult, *, json_mode: bool = False) -> None:
     if command == "add":
         _emit_add(payload)
         return
+    if command == "add-to":
+        _emit_add_to(payload)
+        return
     if command in {"note-append", "chain-append", "project-append"}:
         _emit_append_like(command, payload)
         return
@@ -215,6 +218,23 @@ def _emit_add(payload: dict[str, Any]) -> None:
     sys.stdout.write(
         f"Added event to task {payload['task_short_uuid']}: {payload['annotation']}\n"
     )
+
+
+def _emit_add_to(payload: dict[str, Any]) -> None:
+    kind = str(payload.get("note_kind") or "note")
+    heading = str(payload.get("heading") or "")
+    match = str(payload.get("heading_match") or "unknown")
+    path = str(payload.get("path") or "")
+    entry = str(payload.get("entry") or "")
+    if kind == "project":
+        identity = str(payload.get("project") or "")
+    else:
+        identity = str(payload.get("task_short_uuid") or "")
+    sys.stdout.write(f"Added entry to {kind} note {identity}\n")
+    _emit_field("heading", heading, indent=0)
+    _emit_field("match", match, indent=0)
+    _emit_field("path", path, indent=0)
+    _emit_field("entry", entry, indent=0)
 
 
 def _emit_list(payload: dict[str, Any]) -> None:

@@ -65,6 +65,7 @@ jot project-cat <project-name>
 jot note-append <task-ref> [text...]
 jot chain-append <task-ref> [text...]
 jot project-append <project-name> [text...]
+jot add-to {task|chain|project} <ref> --heading <title> [--create-heading] [--heading-exact] [--text "..."]
 jot add [--type TYPE] <task-ref> [text...]
 jot list <task-ref>
 jot show <task-ref>
@@ -129,6 +130,14 @@ Supported tokens in templates:
 - `{{updated}}`
 - `{{project_path}}`
 
+`add-to` behavior:
+
+- resolves headings with fuzzy matching by default
+- supports strict matching with `--heading-exact`
+- creates missing headings with `--create-heading`
+- writes entries as timestamped bullets, for example:
+  `- [2026-04-12T13:30:00Z] call vendor`
+
 ## Nautical Companion
 
 `jot` is designed to complement Nautical’s recurrence model.
@@ -161,6 +170,7 @@ jot report recent --limit 10
 jot search --kind project-note vendor
 jot search --project finance.audit vendor
 jot search --chain a4bf5egh vendor
+jot add-to task 42 --heading "Next steps" --text "Call vendor Monday"
 jot note-append 42 Followed up with vendor
 jot project-append Finances.Expense waiting on reimbursement rules
 jot add --type status 42 waiting on vendor

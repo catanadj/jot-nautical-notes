@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+from dataclasses import dataclass
+from difflib import SequenceMatcher
 from pathlib import Path
 import re
 
@@ -12,6 +14,18 @@ from .templates import apply_template
 
 
 SLUG_RE = re.compile(r"[^a-z0-9]+")
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.+?)\s*$")
+HEADING_NORMALIZE_RE = re.compile(r"[^a-z0-9]+")
+
+
+@dataclass(slots=True)
+class HeadingInsertResult:
+    note_path: Path
+    existed: bool
+    heading: str
+    match: str
+    timestamp: str
+    entry: str
 
 
 def slugify(text: str, fallback: str = "task", max_len: int = 40) -> str:
@@ -109,6 +123,69 @@ def append_to_project_note(config: AppConfig, project_name: str, text: str) -> A
     _append_text(note.note_path, text)
     touch_updated(note.note_path)
     return AppendResult(note_path=note.note_path, existed=note.existed, appended_text=text)
+
+
+def add_to_task_heading(
+    config: AppConfig,
+    task: ResolvedTask,
+    heading: str,
+    text: str,
+    *,
+    create_heading: bool = False,
+    exact: bool = False,
+) -> HeadingInsertResult:
+    note = ensure_task_note(config, task)
+    result = _append_under_heading(
+        note.note_path,
+        heading,
+        text,
+        create_heading=create_heading,
+        exact=exact,
+    )
+    touch_updated(note.note_path)
+    return HeadingInsertResult(note_path=note.note_path, existed=note.existed, **result)
+
+
+def add_to_chain_heading(
+    config: AppConfig,
+    task: ResolvedTask,
+    heading: str,
+    text: str,
+    *,
+    create_heading: bool = False,
+    exact: bool = False,
+) -> HeadingInsertResult:
+    note = ensure_chain_note(config, task)
+    result = _append_under_heading(
+        note.note_path,
+        heading,
+        text,
+        create_heading=create_heading,
+        exact=exact,
+    )
+    touch_updated(note.note_path)
+    return HeadingInsertResult(note_path=note.note_path, existed=note.existed, **result)
+
+
+def add_to_project_heading(
+    config: AppConfig,
+    project_name: str,
+    heading: str,
+    text: str,
+    *,
+    create_heading: bool = False,
+    exact: bool = False,
+) -> HeadingInsertResult:
+    note = ensure_project_note(config, project_name)
+    result = _append_under_heading(
+        note.note_path,
+        heading,
+        text,
+        create_heading=create_heading,
+        exact=exact,
+    )
+    touch_updated(note.note_path)
+    return HeadingInsertResult(note_path=note.note_path, existed=note.existed, **result)
 
 
 def find_chain_note(config: AppConfig, task: ResolvedTask) -> Path | None:
@@ -285,3 +362,161 @@ def _append_text(path: Path, text: str) -> None:
     normalized += chunk
     write_document(path, metadata, normalized)
 
+
+def _append_under_heading(
+    path: Path,
+    heading_query: str,
+    text: str,
+    *,
+    create_heading: bool,
+    exact: bool,
+) -> dict[str, str]:
+    metadata, body = read_document(path)
+    chunk = text.strip()
+    if not chunk:
+        raise RuntimeError("cannot append empty text")
+    query = str(heading_query or "").strip()
+    if not query:
+        raise RuntimeError("heading is empty")
+
+    lines = body.splitlines()
+    headings = _collect_headings(lines)
+    selected = _resolve_heading(headings, query, exact=exact)
+    match = selected["match"] if selected else "created"
+    if selected is None:
+        if not create_heading:
+            available = ", ".join(item["title"] for item in headings) or "(none)"
+            raise RuntimeError(f"heading not found for '{query}'. available headings: {available}")
+        lines = _append_new_heading(lines, query)
+        headings = _collect_headings(lines)
+        selected = _resolve_heading(headings, query, exact=True)
+        if selected is None:
+            raise RuntimeError(f"failed to create heading '{query}'")
+
+    timestamp = iso_now()
+    entry = f"- [{timestamp}] {chunk}"
+    lines = _insert_entry(lines, selected, entry)
+    write_document(path, metadata, "\n".join(lines))
+    return {
+        "heading": str(selected["title"]),
+        "match": str(match),
+        "timestamp": timestamp,
+        "entry": entry,
+    }
+
+
+def _collect_headings(lines: list[str]) -> list[dict[str, object]]:
+    headings: list[dict[str, object]] = []
+    for idx, line in enumerate(lines):
+        match = HEADING_RE.match(line.strip())
+        if not match:
+            continue
+        title = match.group(2).strip()
+        headings.append(
+            {
+                "index": idx,
+                "level": len(match.group(1)),
+                "title": title,
+                "norm": _normalize_heading(title),
+            }
+        )
+    return headings
+
+
+def _normalize_heading(value: str) -> str:
+    text = HEADING_NORMALIZE_RE.sub(" ", str(value or "").lower()).strip()
+    return re.sub(r"\s+", " ", text)
+
+
+def _resolve_heading(headings: list[dict[str, object]], query: str, *, exact: bool) -> dict[str, object] | None:
+    if not headings:
+        return None
+    query_norm = _normalize_heading(query)
+    if not query_norm:
+        return None
+
+    exact_hits = [item for item in headings if item["norm"] == query_norm]
+    if exact_hits:
+        picked = dict(exact_hits[0])
+        picked["match"] = "exact"
+        return picked
+    if exact:
+        return None
+
+    contains_hits = [
+        item
+        for item in headings
+        if query_norm in str(item["norm"]) or str(item["norm"]) in query_norm
+    ]
+    if len(contains_hits) == 1:
+        picked = dict(contains_hits[0])
+        picked["match"] = "contains"
+        return picked
+    if len(contains_hits) > 1:
+        scored = sorted(
+            (
+                (SequenceMatcher(None, query_norm, str(item["norm"])).ratio(), item)
+                for item in contains_hits
+            ),
+            key=lambda pair: pair[0],
+            reverse=True,
+        )
+        if len(scored) > 1 and scored[0][0] - scored[1][0] < 0.08:
+            titles = ", ".join(str(item["title"]) for _score, item in scored[:3])
+            raise RuntimeError(f"heading '{query}' is ambiguous: {titles}")
+        picked = dict(scored[0][1])
+        picked["match"] = "contains"
+        return picked
+
+    scored_all = sorted(
+        (
+            (SequenceMatcher(None, query_norm, str(item["norm"])).ratio(), item)
+            for item in headings
+        ),
+        key=lambda pair: pair[0],
+        reverse=True,
+    )
+    best_score, best_item = scored_all[0]
+    if best_score < 0.72:
+        return None
+    if len(scored_all) > 1 and best_score - scored_all[1][0] < 0.06:
+        titles = ", ".join(str(item["title"]) for _score, item in scored_all[:3])
+        raise RuntimeError(f"heading '{query}' is ambiguous: {titles}")
+    picked = dict(best_item)
+    picked["match"] = "fuzzy"
+    return picked
+
+
+def _append_new_heading(lines: list[str], title: str) -> list[str]:
+    normalized = list(lines)
+    while normalized and not normalized[-1].strip():
+        normalized.pop()
+    if normalized:
+        normalized.extend(["", f"## {title}", ""])
+    else:
+        normalized.extend([f"## {title}", ""])
+    return normalized
+
+
+def _insert_entry(lines: list[str], heading: dict[str, object], entry: str) -> list[str]:
+    heading_index = int(heading["index"])
+    heading_level = int(heading["level"])
+    next_index = len(lines)
+    for idx in range(heading_index + 1, len(lines)):
+        match = HEADING_RE.match(lines[idx].strip())
+        if not match:
+            continue
+        level = len(match.group(1))
+        if level <= heading_level:
+            next_index = idx
+            break
+
+    section = list(lines[heading_index + 1 : next_index])
+    while section and not section[-1].strip():
+        section.pop()
+    if section:
+        section.extend(["", entry])
+    else:
+        section.extend(["", entry])
+    new_lines = list(lines[: heading_index + 1]) + section + list(lines[next_index:])
+    return new_lines

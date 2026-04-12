@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -402,6 +403,73 @@ class CliIntegrationTests(JotCliTestCase):
         missing_chain_cat = self.run_jot("chain-cat", "2")
         self.assertNotEqual(missing_chain_cat.returncode, 0)
         self.assertIn("chain note does not exist", missing_chain_cat.stderr)
+
+    def test_add_to_task_heading_fuzzy_adds_timestamped_entry(self) -> None:
+        task = {
+            "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
+            "description": "Fix billing discrepancy",
+            "project": "finance.audit",
+            "tags": ["ann"],
+            "annotations": [],
+        }
+        self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
+
+        result = self.run_jot(
+            "add-to",
+            "task",
+            "1",
+            "--heading",
+            "next stps",
+            "--text",
+            "call vendor monday",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        note_text = list((self.home / ".task" / "jot" / "tasks").glob("*.md"))[0].read_text(encoding="utf-8")
+        self.assertIn("## Next steps", note_text)
+        self.assertRegex(note_text, r"- \[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] call vendor monday")
+
+    def test_add_to_chain_heading_exact_can_fail_cleanly(self) -> None:
+        task = {
+            "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
+            "description": "Fix billing discrepancy",
+            "project": "finance.audit",
+            "tags": ["ann"],
+            "chainID": "a4bf5egh",
+            "annotations": [],
+        }
+        self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
+
+        result = self.run_jot(
+            "add-to",
+            "chain",
+            "1",
+            "--heading",
+            "operating ntes",
+            "--heading-exact",
+            "--text",
+            "skip holidays",
+        )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("heading not found", result.stderr)
+
+    def test_add_to_project_heading_can_create_missing_heading(self) -> None:
+        self.run_jot("project-append", "finance.audit", "baseline entry")
+
+        result = self.run_jot(
+            "add-to",
+            "project",
+            "finance.audit",
+            "--heading",
+            "Risks",
+            "--create-heading",
+            "--text",
+            "vendor dependency",
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        note_path = self.home / ".task" / "jot" / "projects" / "finance" / "audit" / "index.md"
+        note_text = note_path.read_text(encoding="utf-8")
+        self.assertIn("## Risks", note_text)
+        self.assertRegex(note_text, r"- \[\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\] vendor dependency")
 
     def test_add_and_list_events(self) -> None:
         task = {

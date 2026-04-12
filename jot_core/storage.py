@@ -11,6 +11,9 @@ from .index import (
 from .models import AppConfig, AppendResult, NotePaths, ResolvedTask
 from .nautical import chain_id_for_task
 from .notes import (
+    add_to_chain_heading,
+    add_to_project_heading,
+    add_to_task_heading,
     append_to_chain_note,
     append_to_project_note,
     append_to_task_note,
@@ -98,6 +101,120 @@ def append_project_note_storage(config: AppConfig, project_name: str, text: str)
         path=str(result.note_path),
     )
     return result
+
+
+def add_to_task_heading_storage(
+    config: AppConfig,
+    task: ResolvedTask,
+    *,
+    heading: str,
+    text: str,
+    create_heading: bool,
+    exact: bool,
+) -> dict[str, object]:
+    result = add_to_task_heading(
+        config,
+        task,
+        heading,
+        text,
+        create_heading=create_heading,
+        exact=exact,
+    )
+    update_task_note_index(config, task, result.note_path)
+    append_op(
+        config,
+        "task_note_add_to_heading",
+        task_short_uuid=task.task_short_uuid,
+        task_uuid=task.task_uuid,
+        heading=result.heading,
+        heading_match=result.match,
+        entry=result.entry,
+        path=str(result.note_path),
+    )
+    return {
+        "note_path": result.note_path,
+        "opened": result.existed,
+        "heading": result.heading,
+        "heading_match": result.match,
+        "timestamp": result.timestamp,
+        "entry": result.entry,
+    }
+
+
+def add_to_chain_heading_storage(
+    config: AppConfig,
+    task: ResolvedTask,
+    *,
+    heading: str,
+    text: str,
+    create_heading: bool,
+    exact: bool,
+) -> dict[str, object]:
+    result = add_to_chain_heading(
+        config,
+        task,
+        heading,
+        text,
+        create_heading=create_heading,
+        exact=exact,
+    )
+    update_chain_note_index(config, task, result.note_path)
+    append_op(
+        config,
+        "chain_note_add_to_heading",
+        task_short_uuid=task.task_short_uuid,
+        task_uuid=task.task_uuid,
+        chain_id=chain_id_for_task(task.task) or None,
+        heading=result.heading,
+        heading_match=result.match,
+        entry=result.entry,
+        path=str(result.note_path),
+    )
+    return {
+        "note_path": result.note_path,
+        "opened": result.existed,
+        "heading": result.heading,
+        "heading_match": result.match,
+        "timestamp": result.timestamp,
+        "entry": result.entry,
+    }
+
+
+def add_to_project_heading_storage(
+    config: AppConfig,
+    project_name: str,
+    *,
+    heading: str,
+    text: str,
+    create_heading: bool,
+    exact: bool,
+) -> dict[str, object]:
+    result = add_to_project_heading(
+        config,
+        project_name,
+        heading,
+        text,
+        create_heading=create_heading,
+        exact=exact,
+    )
+    update_project_note_index(config, project_name, result.note_path)
+    append_op(
+        config,
+        "project_note_add_to_heading",
+        project=project_name,
+        heading=result.heading,
+        heading_match=result.match,
+        entry=result.entry,
+        path=str(result.note_path),
+    )
+    return {
+        "note_path": result.note_path,
+        "opened": result.existed,
+        "heading": result.heading,
+        "heading_match": result.match,
+        "timestamp": result.timestamp,
+        "entry": result.entry,
+    }
 
 
 def record_event_add(
