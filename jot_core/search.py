@@ -7,30 +7,64 @@ from .frontmatter import read_document
 from .models import AppConfig
 from .ops import read_ops
 
+ALLOWED_KINDS = {"task-note", "chain-note", "project-note", "event"}
 
-def search_all(config: AppConfig, query: str) -> dict[str, list[dict[str, Any]]]:
+
+def search_all(
+    config: AppConfig,
+    query: str,
+    *,
+    kinds: set[str] | None = None,
+    project: str | None = None,
+    chain_id: str | None = None,
+) -> dict[str, list[dict[str, Any]]]:
     needle = str(query or "").strip().lower()
     if not needle:
         raise RuntimeError("search query is empty")
+    selected = set(kinds or ALLOWED_KINDS)
+    task_metadata = _task_note_metadata(config)
 
     return {
-        "notes": _search_notes(config, needle),
-        "events": _search_events(config, needle),
+        "notes": _search_notes(config, needle, selected, project=project, chain_id=chain_id),
+        "events": _search_events(
+            config,
+            needle,
+            selected,
+            project=project,
+            chain_id=chain_id,
+            task_metadata=task_metadata,
+        ),
     }
 
 
-def _search_notes(config: AppConfig, needle: str) -> list[dict[str, Any]]:
+def _search_notes(
+    config: AppConfig,
+    needle: str,
+    kinds: set[str],
+    *,
+    project: str | None,
+    chain_id: str | None,
+) -> list[dict[str, Any]]:
     hits: list[dict[str, Any]] = []
     for base, pattern, kind in (
         (config.tasks_dir, "*.md", "task-note"),
         (config.chains_dir, "*.md", "chain-note"),
         (config.projects_dir, "**/index.md", "project-note"),
     ):
+        if kind not in kinds:
+            continue
         for path in sorted(base.glob(pattern)):
             metadata, body = read_document(path)
+            project_name = str(metadata.get("project") or "").strip()
+            note_chain_id = str(metadata.get("chain_id") or "").strip()
+            if project and project_name != project:
+                continue
+            if chain_id and note_chain_id != chain_id:
+                continue
             haystacks = [
                 str(metadata.get("description") or ""),
-                str(metadata.get("project") or ""),
+                project_name,
+                note_chain_id,
                 str(body or ""),
                 path.name,
             ]
@@ -43,30 +77,66 @@ def _search_notes(config: AppConfig, needle: str) -> list[dict[str, Any]]:
                 "description": str(metadata.get("description") or ""),
                 "match": _excerpt(str(body or ""), needle),
             }
-            project_name = str(metadata.get("project") or "")
             if project_name:
                 item["project"] = project_name
+            if note_chain_id:
+                item["chain_id"] = note_chain_id
             hits.append(item)
     return hits
 
 
-def _search_events(config: AppConfig, needle: str) -> list[dict[str, Any]]:
+def _search_events(
+    config: AppConfig,
+    needle: str,
+    kinds: set[str],
+    *,
+    project: str | None,
+    chain_id: str | None,
+    task_metadata: dict[str, dict[str, str]],
+) -> list[dict[str, Any]]:
+    if "event" not in kinds:
+        return []
     hits: list[dict[str, Any]] = []
     for item in read_ops(config):
         if str(item.get("op") or "") != "event_add":
             continue
+        short_uuid = str(item.get("task_short_uuid") or "").strip()
+        inferred = task_metadata.get(short_uuid, {})
+        event_project = str(item.get("project") or "").strip() or inferred.get("project", "")
+        event_chain_id = str(item.get("chain_id") or "").strip() or inferred.get("chain_id", "")
+        if project and event_project != project:
+            continue
+        if chain_id and event_chain_id != chain_id:
+            continue
         annotation = str(item.get("annotation") or "")
         if needle not in annotation.lower():
             continue
-        hits.append(
-            {
-                "kind": "event",
-                "task_short_uuid": str(item.get("task_short_uuid") or ""),
-                "ts": str(item.get("ts") or ""),
-                "annotation": annotation,
-            }
-        )
+        event = {
+            "kind": "event",
+            "task_short_uuid": short_uuid,
+            "ts": str(item.get("ts") or ""),
+            "annotation": annotation,
+        }
+        if event_project:
+            event["project"] = event_project
+        if event_chain_id:
+            event["chain_id"] = event_chain_id
+        hits.append(event)
     return hits
+
+
+def _task_note_metadata(config: AppConfig) -> dict[str, dict[str, str]]:
+    items: dict[str, dict[str, str]] = {}
+    for path in sorted(config.tasks_dir.glob("*.md")):
+        metadata, _body = read_document(path)
+        short_uuid = str(metadata.get("task_short_uuid") or "").strip()
+        if not short_uuid:
+            continue
+        items[short_uuid] = {
+            "project": str(metadata.get("project") or "").strip(),
+            "chain_id": str(metadata.get("chain_id") or "").strip(),
+        }
+    return items
 
 
 def _excerpt(body: str, needle: str, width: int = 80) -> str:
@@ -84,3 +154,31 @@ def _excerpt(body: str, needle: str, width: int = 80) -> str:
     if end < len(text):
         excerpt += "..."
     return excerpt
+
+
+def normalize_kinds(raw_kinds: list[str] | None) -> set[str]:
+    if not raw_kinds:
+        return set(ALLOWED_KINDS)
+    selected = {str(item).strip() for item in raw_kinds if str(item).strip()}
+    invalid = sorted(selected - ALLOWED_KINDS)
+    if invalid:
+        raise RuntimeError(f"unsupported kind filter: {', '.join(invalid)}")
+    return selected
+
+
+def normalize_project(raw_project: str | None) -> str | None:
+    if raw_project is None:
+        return None
+    project = str(raw_project).strip()
+    if not project:
+        raise RuntimeError("project filter is empty")
+    return project
+
+
+def normalize_chain_id(raw_chain_id: str | None) -> str | None:
+    if raw_chain_id is None:
+        return None
+    chain_id = str(raw_chain_id).strip()
+    if not chain_id:
+        raise RuntimeError("chain filter is empty")
+    return chain_id

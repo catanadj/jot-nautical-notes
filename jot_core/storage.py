@@ -113,6 +113,7 @@ def record_event_add(
         "event_add",
         task_short_uuid=task.task_short_uuid,
         task_uuid=task.task_uuid,
+        project=task.project or None,
         chain_id=chain_id_for_task(task.task) or None,
         event_type=event_type,
         annotation=annotation,

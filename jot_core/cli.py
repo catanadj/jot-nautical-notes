@@ -26,7 +26,8 @@ from .notes import (
 )
 from .ops import iso_now, read_ops
 from .output import emit_result, warn
-from .search import search_all
+from .report import list_project_notes, recent_activity
+from .search import normalize_chain_id, normalize_kinds, normalize_project, search_all
 from .storage import (
     append_chain_note_storage,
     append_project_note_storage,
@@ -89,6 +90,34 @@ def build_parser() -> argparse.ArgumentParser:
         "stats",
         help="show local jot note, ops, and index statistics",
         description="Show local jot note counts, event-log size, and index status without querying Taskwarrior.",
+    )
+    subparsers.add_parser(
+        "project-list",
+        help="list known project notes",
+        description="List known project notes discovered from the local jot projects directory.",
+    )
+    report = subparsers.add_parser(
+        "report",
+        help="show read-only reports from local jot state",
+        description="Show read-only reports from local note files and the ops log.",
+    )
+    report_subparsers = report.add_subparsers(dest="report_command", required=True)
+    report_recent = report_subparsers.add_parser(
+        "recent",
+        help="show recent note and event activity",
+        description="Show recent note updates and logged events across the local jot dataset.",
+    )
+    report_recent.add_argument(
+        "--limit",
+        type=int,
+        default=20,
+        help="maximum number of items to return",
+    )
+    report_recent.add_argument(
+        "--kind",
+        action="append",
+        dest="kinds",
+        help="filter by kind: task-note, chain-note, project-note, event",
     )
 
     task_commands = {
@@ -198,6 +227,21 @@ def build_parser() -> argparse.ArgumentParser:
         description="Search task notes, chain notes, project notes, and the logged event stream.",
     )
     search.add_argument("query", help="case-insensitive search text")
+    search.add_argument(
+        "--kind",
+        action="append",
+        dest="kinds",
+        help="filter by kind: task-note, chain-note, project-note, event",
+    )
+    search.add_argument(
+        "--project",
+        help="filter by exact Taskwarrior project name",
+    )
+    search.add_argument(
+        "--chain",
+        dest="chain_id",
+        help="filter by exact Nautical chainID",
+    )
 
     return parser
 
@@ -225,6 +269,10 @@ def main(argv: list[str] | None = None) -> int:
             result = _run_rebuild_index(ctx)
         elif args.command == "stats":
             result = _run_stats(ctx)
+        elif args.command == "project-list":
+            result = _run_project_list(ctx)
+        elif args.command == "report":
+            result = _run_report(ctx, args)
         elif args.command == "note":
             result = _run_note(ctx, args.task_ref)
         elif args.command == "chain":
@@ -254,7 +302,13 @@ def main(argv: list[str] | None = None) -> int:
         elif args.command == "export":
             result = _run_export(ctx, args.task_ref)
         elif args.command == "search":
-            result = _run_search(ctx, args.query)
+            result = _run_search(
+                ctx,
+                args.query,
+                getattr(args, "kinds", None),
+                getattr(args, "project", None),
+                getattr(args, "chain_id", None),
+            )
         else:  # pragma: no cover
             parser.error(f"unknown command {args.command}")
             return 2
@@ -345,6 +399,27 @@ def _run_stats(ctx) -> CommandResult:
             },
         },
     )
+
+
+def _run_project_list(ctx) -> CommandResult:
+    return CommandResult(
+        command="project-list",
+        payload={"projects": list_project_notes(ctx.config)},
+    )
+
+
+def _run_report(ctx, args) -> CommandResult:
+    if args.report_command == "recent":
+        kinds = normalize_kinds(getattr(args, "kinds", None))
+        return CommandResult(
+            command="report-recent",
+            payload={
+                "limit": args.limit,
+                "kinds": sorted(kinds),
+                "items": recent_activity(ctx.config, limit=args.limit, kinds=kinds),
+            },
+        )
+    raise RuntimeError(f"unknown report '{args.report_command}'")
 
 
 def _run_chain(ctx, task_ref: str) -> CommandResult:
@@ -539,10 +614,22 @@ def _run_project_append(ctx, project_name: str, text: str) -> CommandResult:
     )
 
 
-def _run_search(ctx, query: str) -> CommandResult:
+def _run_search(
+    ctx,
+    query: str,
+    raw_kinds: list[str] | None,
+    raw_project: str | None,
+    raw_chain_id: str | None,
+) -> CommandResult:
+    kinds = normalize_kinds(raw_kinds)
+    project = normalize_project(raw_project)
+    chain_id = normalize_chain_id(raw_chain_id)
     payload = {
         "query": query,
-        **search_all(ctx.config, query),
+        "kinds": sorted(kinds),
+        "project": project,
+        "chain_id": chain_id,
+        **search_all(ctx.config, query, kinds=kinds, project=project, chain_id=chain_id),
     }
     return CommandResult(command="search", payload=payload)
 

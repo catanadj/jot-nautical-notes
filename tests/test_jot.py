@@ -470,6 +470,34 @@ class CliIntegrationTests(JotCliTestCase):
         self.assertGreaterEqual(len(payload["events"]), 1)
         self.assertEqual(payload["events"][0]["kind"], "event")
         self.assertIn("project-note", {item["kind"] for item in payload["notes"]})
+        filtered = self.run_jot("--json", "search", "--kind", "project-note", "vendor")
+        self.assertEqual(filtered.returncode, 0, filtered.stderr)
+        filtered_payload = json.loads(filtered.stdout)
+        self.assertEqual(filtered_payload["kinds"], ["project-note"])
+        self.assertGreaterEqual(len(filtered_payload["notes"]), 1)
+        self.assertEqual(filtered_payload["events"], [])
+        self.assertEqual({item["kind"] for item in filtered_payload["notes"]}, {"project-note"})
+
+        project_filtered = self.run_jot("--json", "search", "--project", "finance.audit", "vendor")
+        self.assertEqual(project_filtered.returncode, 0, project_filtered.stderr)
+        project_payload = json.loads(project_filtered.stdout)
+        self.assertEqual(project_payload["project"], "finance.audit")
+        self.assertGreaterEqual(len(project_payload["notes"]), 1)
+        self.assertGreaterEqual(len(project_payload["events"]), 1)
+        self.assertTrue(
+            all(item.get("project") == "finance.audit" for item in project_payload["notes"] if item.get("project"))
+        )
+        self.assertTrue(all(item.get("project") == "finance.audit" for item in project_payload["events"]))
+
+        chain_filtered = self.run_jot("--json", "search", "--chain", "a4bf5egh", "vendor")
+        self.assertEqual(chain_filtered.returncode, 0, chain_filtered.stderr)
+        chain_payload = json.loads(chain_filtered.stdout)
+        self.assertEqual(chain_payload["chain_id"], "a4bf5egh")
+        self.assertGreaterEqual(len(chain_payload["notes"]), 1)
+        self.assertGreaterEqual(len(chain_payload["events"]), 1)
+        note_chain_ids = {item["chain_id"] for item in chain_payload["notes"] if item.get("chain_id")}
+        self.assertEqual(note_chain_ids, {"a4bf5egh"})
+        self.assertEqual({item["chain_id"] for item in chain_payload["events"]}, {"a4bf5egh"})
 
     def test_list_json_contract(self) -> None:
         task = {
@@ -730,6 +758,51 @@ class CliIntegrationTests(JotCliTestCase):
         self.assertTrue(payload["index"]["exists"])
         self.assertTrue(payload["index"]["valid"])
         self.assertTrue(payload["index"]["stale"])
+
+    def test_project_list_reports_known_project_notes(self) -> None:
+        self.run_jot("project-append", "finance.audit", "project context")
+        self.run_jot("project-append", "ops.runbook", "ops context")
+
+        result = self.run_jot("--json", "project-list")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual([item["project"] for item in payload["projects"]], ["finance.audit", "ops.runbook"])
+        self.assertTrue(payload["projects"][0]["path"].endswith("projects/finance/audit/index.md"))
+
+    def test_report_recent_combines_notes_and_events(self) -> None:
+        task = {
+            "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
+            "description": "Fix billing discrepancy",
+            "project": "finance.audit",
+            "tags": ["ann"],
+            "chainID": "a4bf5egh",
+            "link": 3,
+            "anchor": "m:last-fri",
+            "anchor_mode": "skip",
+            "annotations": [],
+        }
+        self.write_state({"version": "2.6.2", "single": [task], "1": [task], "annotate_key": "1"})
+
+        self.run_jot("note-append", "1", "task note body")
+        self.run_jot("chain-append", "1", "chain note body")
+        self.run_jot("project-append", "finance.audit", "project context")
+        self.run_jot("add", "--type", "status", "1", "waiting", "on", "vendor")
+
+        result = self.run_jot("--json", "report", "recent", "--limit", "10")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual(payload["limit"], 10)
+        kinds = {item["kind"] for item in payload["items"]}
+        self.assertIn("task-note", kinds)
+        self.assertIn("chain-note", kinds)
+        self.assertIn("project-note", kinds)
+        self.assertIn("event", kinds)
+        filtered = self.run_jot("--json", "report", "recent", "--kind", "event", "--limit", "10")
+        self.assertEqual(filtered.returncode, 0, filtered.stderr)
+        filtered_payload = json.loads(filtered.stdout)
+        self.assertEqual(filtered_payload["kinds"], ["event"])
+        self.assertTrue(filtered_payload["items"])
+        self.assertEqual({item["kind"] for item in filtered_payload["items"]}, {"event"})
 
     def test_ambiguous_short_uuid_returns_error(self) -> None:
         task_a = {

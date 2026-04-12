@@ -52,6 +52,9 @@ jot doctor
 jot paths
 jot rebuild-index
 jot stats
+jot project-list
+jot report recent [--limit N]
+jot report recent --kind event --limit 10
 jot note <task-ref>
 jot chain <task-ref>
 jot task-cat <task-ref>
@@ -66,7 +69,7 @@ jot add [--type TYPE] <task-ref> [text...]
 jot list <task-ref>
 jot show <task-ref>
 jot export <task-ref>
-jot search <query>
+jot search [--kind KIND] [--project NAME] [--chain ID] <query>
 ```
 
 All commands support `--json`.
@@ -128,6 +131,11 @@ jot project-cat Finances.Expense
 jot paths
 jot rebuild-index
 jot stats
+jot project-list
+jot report recent --limit 10
+jot search --kind project-note vendor
+jot search --project finance.audit vendor
+jot search --chain a4bf5egh vendor
 jot note-append 42 Followed up with vendor
 jot project-append Finances.Expense waiting on reimbursement rules
 jot add --type status 42 waiting on vendor

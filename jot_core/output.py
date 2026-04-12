@@ -26,6 +26,12 @@ def emit_result(result: CommandResult, *, json_mode: bool = False) -> None:
     if command == "stats":
         _emit_stats(payload)
         return
+    if command == "project-list":
+        _emit_project_list(payload)
+        return
+    if command == "report-recent":
+        _emit_report_recent(payload)
+        return
     if command in {"note", "chain", "project"}:
         _emit_note_like(command, payload)
         return
@@ -115,6 +121,46 @@ def _emit_stats(payload: dict[str, Any]) -> None:
     sys.stdout.write("  counts:\n")
     for key in ("tasks", "chains", "projects"):
         _emit_field(key, counts.get(key), indent=4)
+
+
+def _emit_project_list(payload: dict[str, Any]) -> None:
+    items = payload.get("projects") or []
+    sys.stdout.write("Projects\n\n")
+    if not items:
+        sys.stdout.write("(none)\n")
+        return
+    for item in items:
+        project = str(item.get("project") or "")
+        updated = str(item.get("updated") or "").strip() or "unknown"
+        path = str(item.get("path") or "")
+        sys.stdout.write(f"{project}\n")
+        _emit_field("updated", updated, indent=2)
+        _emit_field("path", path, indent=2)
+        sys.stdout.write("\n")
+
+
+def _emit_report_recent(payload: dict[str, Any]) -> None:
+    items = payload.get("items") or []
+    limit = payload.get("limit")
+    kinds = payload.get("kinds") or []
+    sys.stdout.write(f"Recent (limit={limit})\n")
+    if kinds:
+        sys.stdout.write(f"Kinds: {', '.join(kinds)}\n")
+    sys.stdout.write("\n")
+    if not items:
+        sys.stdout.write("(none)\n")
+        return
+    for item in items:
+        ts = str(item.get("ts") or "unknown")
+        kind = str(item.get("kind") or "item")
+        ident = _recent_identity(item)
+        summary = _recent_summary(item)
+        line = f"{ts}  {kind}"
+        if ident:
+            line += f"  {ident}"
+        if summary:
+            line += f"  {summary}"
+        sys.stdout.write(f"{line}\n")
 
 
 def _emit_note_like(command: str, payload: dict[str, Any]) -> None:
@@ -229,6 +275,15 @@ def _emit_export(payload: dict[str, Any]) -> None:
 
 def _emit_search(payload: dict[str, Any]) -> None:
     sys.stdout.write(f"Query: {payload.get('query')}\n")
+    kinds = payload.get("kinds") or []
+    if kinds:
+        sys.stdout.write(f"Kinds: {', '.join(kinds)}\n")
+    project = str(payload.get("project") or "").strip()
+    if project:
+        sys.stdout.write(f"Project: {project}\n")
+    chain_id = str(payload.get("chain_id") or "").strip()
+    if chain_id:
+        sys.stdout.write(f"Chain: {chain_id}\n")
     note_hits = payload.get("notes") or []
     event_hits = payload.get("events") or []
     sys.stdout.write("Notes:\n")
@@ -273,3 +328,21 @@ def _emit_field(label: str, value: Any, *, indent: int = 0, width: int = 11) -> 
     pad = " " * indent
     text = "" if value is None else str(value)
     sys.stdout.write(f"{pad}{label:<{width}}: {text}\n")
+
+
+def _recent_identity(item: dict[str, Any]) -> str:
+    for key in ("task_short_uuid", "chain_id", "project"):
+        value = str(item.get(key) or "").strip()
+        if value:
+            return value
+    return ""
+
+
+def _recent_summary(item: dict[str, Any]) -> str:
+    kind = str(item.get("kind") or "")
+    if kind == "event":
+        return str(item.get("annotation") or "").strip()
+    description = str(item.get("description") or "").strip()
+    if description:
+        return description
+    return str(item.get("path") or "").strip()
