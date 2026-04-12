@@ -141,7 +141,10 @@ def run_tui(service: JotService) -> int:
                 self.notify("Select a task row in Recent first", severity="warning")
                 return
             try:
-                path = self.svc.open_task_note_in_editor(self.current_task_ref)
+                # Hand terminal control back to the editor process; otherwise
+                # the editor runs under Textual's terminal mode and feels broken.
+                with self.suspend():
+                    path = self.svc.open_task_note_in_editor(self.current_task_ref)
             except Exception as exc:
                 self.notify(f"Editor failed: {exc}", severity="error")
                 return
