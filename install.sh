@@ -59,6 +59,7 @@ mkdir -p "$LIB_DIR"
 mkdir -p "$CONFIG_DIR"
 mkdir -p "$TEMPLATES_DIR"
 rm -rf "$LIB_DIR/jot_core"
+rm -rf "$LIB_DIR/jot_tui"
 rm -rf "$LIB_DIR/templates"
 
 install -m 755 "$SCRIPT_DIR/jot" "$LIB_DIR/jot"
@@ -67,7 +68,10 @@ tar -C "$SCRIPT_DIR" \
   --exclude='jot_core/__pycache__' \
   --exclude='jot_core/*.pyc' \
   --exclude='jot_core/**/*.pyc' \
-  -cf - jot_core | tar -C "$LIB_DIR" -xf -
+  --exclude='jot_tui/__pycache__' \
+  --exclude='jot_tui/*.pyc' \
+  --exclude='jot_tui/**/*.pyc' \
+  -cf - jot_core jot_tui | tar -C "$LIB_DIR" -xf -
 install -m 644 "$SCRIPT_DIR/config-jot.toml" "$LIB_DIR/config-jot.toml"
 mkdir -p "$LIB_DIR/templates"
 cp -R "$SCRIPT_DIR/templates/." "$LIB_DIR/templates/"

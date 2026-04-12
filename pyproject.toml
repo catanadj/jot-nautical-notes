@@ -18,7 +18,7 @@ dependencies = []
 jot = "jot_core.cli:main"
 
 [tool.setuptools]
-packages = ["jot_core"]
+packages = ["jot_core", "jot_tui"]
 
 [tool.setuptools.dynamic]
 version = {attr = "jot_core.__version__"}

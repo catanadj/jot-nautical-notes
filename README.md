@@ -52,6 +52,7 @@ jot doctor
 jot paths
 jot rebuild-index
 jot stats
+jot tui
 jot project-list
 jot report recent [--limit N]
 jot report recent --kind event --limit 10
@@ -74,6 +75,12 @@ jot search [--kind KIND] [--project NAME] [--chain ID] <query>
 ```
 
 All commands support `--json`.
+
+`jot tui` launches a terminal UI. It requires `textual`:
+
+```bash
+pip install textual
+```
 
 The CLI also supports:
 

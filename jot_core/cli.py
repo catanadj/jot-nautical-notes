@@ -28,6 +28,7 @@ from .ops import iso_now, read_ops
 from .output import emit_result, warn
 from .report import list_project_notes, recent_activity
 from .search import normalize_chain_id, normalize_kinds, normalize_project, search_all
+from .services import JotService
 from .storage import (
     add_to_chain_heading_storage,
     add_to_project_heading_storage,
@@ -93,6 +94,11 @@ def build_parser() -> argparse.ArgumentParser:
         "stats",
         help="show local jot note, ops, and index statistics",
         description="Show local jot note counts, event-log size, and index status without querying Taskwarrior.",
+    )
+    subparsers.add_parser(
+        "tui",
+        help="launch terminal UI",
+        description="Launch the jot terminal user interface.",
     )
     subparsers.add_parser(
         "project-list",
@@ -309,6 +315,8 @@ def main(argv: list[str] | None = None) -> int:
             result = _run_rebuild_index(ctx)
         elif args.command == "stats":
             result = _run_stats(ctx)
+        elif args.command == "tui":
+            return _run_tui(ctx)
         elif args.command == "project-list":
             result = _run_project_list(ctx)
         elif args.command == "report":
@@ -360,6 +368,15 @@ def main(argv: list[str] | None = None) -> int:
 
     emit_result(result, json_mode=args.json)
     return 0
+
+
+def _run_tui(ctx) -> int:
+    try:
+        from jot_tui.app import run_tui
+    except Exception as exc:
+        raise RuntimeError(f"failed to load TUI: {exc}") from exc
+    service = JotService(config=ctx.config, taskwarrior=ctx.taskwarrior)
+    return run_tui(service)
 
 
 def _run_note(ctx, task_ref: str) -> CommandResult:
