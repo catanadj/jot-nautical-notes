@@ -84,7 +84,7 @@ def run_tui(service: JotService) -> int:
         #search-input { margin: 0 1; }
         #task-detail { padding: 1; }
         #context-hints { padding: 0 1; color: $text-muted; }
-        #recent-table, #projects-table, #search-notes-table, #search-events-table { height: 1fr; }
+        #recent-table, #tasks-table, #projects-table, #search-notes-table, #search-events-table { height: 1fr; }
         """
 
         BINDINGS = [
@@ -101,6 +101,7 @@ def run_tui(service: JotService) -> int:
             super().__init__()
             self.svc = svc
             self.recent_rows: list[dict[str, Any]] = []
+            self.task_rows: list[dict[str, Any]] = []
             self.current_task_ref: str | None = None
             self.current_task_chain_path: str = ""
             self.current_task_project: str = ""
@@ -115,6 +116,10 @@ def run_tui(service: JotService) -> int:
                     recent.add_columns("ts", "kind", "id", "summary")
                     yield Static("Recent", classes="title")
                     yield recent
+                    tasks = DataTable(id="tasks-table", cursor_type="row")
+                    tasks.add_columns("id", "project", "description")
+                    yield Static("Tasks", classes="title")
+                    yield tasks
                     projects = DataTable(id="projects-table", cursor_type="row")
                     projects.add_columns("project", "updated")
                     yield Static("Projects", classes="title")
@@ -135,11 +140,13 @@ def run_tui(service: JotService) -> int:
 
         async def on_mount(self) -> None:
             await self._refresh_recent_async()
+            await self._refresh_tasks_async()
             await self._refresh_projects_async()
             self._update_action_hints()
 
         async def action_refresh(self) -> None:
             await self._refresh_recent_async()
+            await self._refresh_tasks_async()
             await self._refresh_projects_async()
             self._update_action_hints()
 
@@ -219,6 +226,18 @@ def run_tui(service: JotService) -> int:
                 asyncio.create_task(self._load_task_async(short_uuid))
                 self._update_action_hints()
                 return
+            if event.data_table.id == "tasks-table":
+                row_index = event.cursor_row
+                if row_index < 0 or row_index >= len(self.task_rows):
+                    return
+                short_uuid = str(self.task_rows[row_index].get("short_uuid") or "").strip()
+                if not short_uuid:
+                    return
+                self.current_task_ref = short_uuid
+                self.current_project_name = None
+                asyncio.create_task(self._load_task_async(short_uuid))
+                self._update_action_hints()
+                return
             if event.data_table.id == "projects-table":
                 row_index = event.cursor_row
                 projects = self.svc.projects()
@@ -249,6 +268,17 @@ def run_tui(service: JotService) -> int:
                     str(item.get("kind") or ""),
                     ident,
                     summary,
+                )
+
+        async def _refresh_tasks_async(self) -> None:
+            table = self.query_one("#tasks-table", DataTable)
+            table.clear()
+            self.task_rows = await asyncio.to_thread(self.svc.tasks, 250)
+            for item in self.task_rows:
+                table.add_row(
+                    str(item.get("short_uuid") or ""),
+                    str(item.get("project") or ""),
+                    str(item.get("description") or ""),
                 )
 
         async def _refresh_projects_async(self) -> None:
@@ -363,6 +393,7 @@ def run_tui(service: JotService) -> int:
                 severity="information",
             )
             await self._refresh_recent_async()
+            await self._refresh_tasks_async()
             await self._refresh_projects_async()
             if self.current_task_ref:
                 await self._load_task_async(self.current_task_ref)

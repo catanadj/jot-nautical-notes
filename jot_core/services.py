@@ -33,6 +33,9 @@ class JotService:
     def projects(self) -> list[dict[str, Any]]:
         return list_project_notes(self.config)
 
+    def tasks(self, limit: int = 200) -> list[dict[str, Any]]:
+        return self.taskwarrior.list_tasks(limit=limit, status="pending")
+
     def search(self, query: str) -> dict[str, list[dict[str, Any]]]:
         return search_all(self.config, query)
 

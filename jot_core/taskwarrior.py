@@ -101,6 +101,28 @@ class TaskwarriorClient:
             )
         return items
 
+    def list_tasks(self, *, limit: int = 200, status: str = "pending") -> list[dict[str, Any]]:
+        if limit <= 0:
+            raise RuntimeError("limit must be greater than zero")
+        tokens = [f"status:{status}", f"limit:{limit}"]
+        rows = self._run_export(tokens)
+        items: list[dict[str, Any]] = []
+        for task in rows:
+            uuid = str(task.get("uuid") or "").strip()
+            if not uuid:
+                continue
+            items.append(
+                {
+                    "uuid": uuid,
+                    "short_uuid": uuid.split("-")[0],
+                    "description": str(task.get("description") or "").strip(),
+                    "project": str(task.get("project") or "").strip(),
+                    "status": str(task.get("status") or "").strip(),
+                    "due": str(task.get("due") or "").strip() or None,
+                }
+            )
+        return items
+
     def _export_for_ref(self, raw_ref: str) -> list[dict]:
         ref = raw_ref.strip()
         if not ref:

@@ -92,6 +92,12 @@ TUI keybinds:
 - `c` add a timestamped entry under a heading for selected chain note (from selected task)
 - `p` add a timestamped entry under a heading for selected project (project row or selected task project)
 
+TUI panes:
+
+- `Recent` activity stream
+- `Tasks` browser for pending tasks
+- `Projects` list from local project notes
+
 The CLI also supports:
 
 ```bash
