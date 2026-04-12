@@ -218,6 +218,90 @@ class CliIntegrationTests(JotCliTestCase):
         self.assertEqual(len(ops_lines), 1)
         self.assertIn('"op":"task_note_append"', ops_lines[0])
 
+    def test_note_templates_are_applied_for_task_chain_and_project(self) -> None:
+        task = {
+            "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
+            "description": "Fix billing discrepancy",
+            "project": "finance.audit",
+            "tags": ["ann"],
+            "chainID": "a4bf5egh",
+            "link": 3,
+            "anchor": "m:last-fri",
+            "anchor_mode": "skip",
+            "annotations": [],
+        }
+        self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
+
+        templates_dir = self.home / ".task" / "jot" / "templates"
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "task-note.md").write_text(
+            textwrap.dedent(
+                """\
+                ---
+                kind: bad-kind
+                custom: "{{task_short_uuid}}"
+                ---
+
+                # TASK {{task_short_uuid}}
+                """
+            ),
+            encoding="utf-8",
+        )
+        (templates_dir / "chain-note.md").write_text(
+            textwrap.dedent(
+                """\
+                # CHAIN {{chain_id}}
+                """
+            ),
+            encoding="utf-8",
+        )
+        (templates_dir / "project-note.md").write_text(
+            textwrap.dedent(
+                """\
+                # PROJECT {{project}}
+                """
+            ),
+            encoding="utf-8",
+        )
+
+        self.run_jot("note-append", "1", "task body")
+        self.run_jot("chain-append", "1", "chain body")
+        self.run_jot("project-append", "finance.audit", "project body")
+
+        task_note = list((self.home / ".task" / "jot" / "tasks").glob("*.md"))[0].read_text(encoding="utf-8")
+        self.assertIn("# TASK 2d6d7d7d", task_note)
+        self.assertIn("kind: task-note", task_note)
+        self.assertIn('custom: "2d6d7d7d"', task_note)
+        self.assertNotIn("kind: bad-kind", task_note)
+
+        chain_note = list((self.home / ".task" / "jot" / "chains").glob("*.md"))[0].read_text(encoding="utf-8")
+        self.assertIn("# CHAIN a4bf5egh", chain_note)
+
+        project_note = (
+            self.home / ".task" / "jot" / "projects" / "finance" / "audit" / "index.md"
+        ).read_text(encoding="utf-8")
+        self.assertIn("# PROJECT finance.audit", project_note)
+
+    def test_empty_template_falls_back_to_builtin_body(self) -> None:
+        task = {
+            "uuid": "2d6d7d7d-1111-2222-3333-444444444444",
+            "description": "Fix billing discrepancy",
+            "project": "finance.audit",
+            "tags": ["ann"],
+            "annotations": [],
+        }
+        self.write_state({"version": "2.6.2", "single": [task], "1": [task]})
+
+        templates_dir = self.home / ".task" / "jot" / "templates"
+        templates_dir.mkdir(parents=True, exist_ok=True)
+        (templates_dir / "task-note.md").write_text("", encoding="utf-8")
+
+        result = self.run_jot("note-append", "1", "entry")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        task_note = list((self.home / ".task" / "jot" / "tasks").glob("*.md"))[0].read_text(encoding="utf-8")
+        self.assertIn("## Context", task_note)
+        self.assertIn("## Notes", task_note)
+
     def test_project_note_append_uses_project_hierarchy_and_updates_index(self) -> None:
         result = self.run_jot("project-append", "Finances.Expense", "reimbursement", "policy")
         self.assertEqual(result.returncode, 0, result.stderr)

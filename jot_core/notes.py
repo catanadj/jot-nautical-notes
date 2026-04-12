@@ -4,10 +4,11 @@ from collections import OrderedDict
 from pathlib import Path
 import re
 
-from .frontmatter import read_document, render_document, update_metadata, write_document
+from .frontmatter import read_document, update_metadata, write_document
 from .models import AppConfig, AppendResult, NotePaths, ResolvedTask
 from .nautical import chain_id_for_task
 from .ops import iso_now
+from .templates import apply_template
 
 
 SLUG_RE = re.compile(r"[^a-z0-9]+")
@@ -51,7 +52,7 @@ def ensure_task_note(config: AppConfig, task: ResolvedTask) -> NotePaths:
     note_path = task_note_path(config, task)
     existed = note_path.exists()
     if not existed:
-        metadata, body = _build_task_note_document(task)
+        metadata, body = _build_task_note_document(config, task)
         write_document(note_path, metadata, body)
     return NotePaths(note_path=note_path, existed=existed)
 
@@ -68,7 +69,7 @@ def ensure_chain_note(config: AppConfig, task: ResolvedTask) -> NotePaths:
     note_path = chain_note_path(config, chain_id, task.description or chain_id)
     existed = note_path.exists()
     if not existed:
-        metadata, body = _build_chain_note_document(task)
+        metadata, body = _build_chain_note_document(config, task)
         write_document(note_path, metadata, body)
     return NotePaths(note_path=note_path, existed=existed)
 
@@ -80,7 +81,7 @@ def ensure_project_note(config: AppConfig, project_name: str) -> NotePaths:
     note_path = project_note_path(config, normalized)
     existed = note_path.exists()
     if not existed:
-        metadata, body = _build_project_note_document(normalized)
+        metadata, body = _build_project_note_document(config, normalized)
         write_document(note_path, metadata, body)
     return NotePaths(note_path=note_path, existed=existed)
 
@@ -126,12 +127,7 @@ def find_project_note(config: AppConfig, project_name: str) -> Path | None:
     return note_path if note_path.exists() else None
 
 
-def _render_task_note(task: ResolvedTask) -> str:
-    metadata, body = _build_task_note_document(task)
-    return _render_document_parts(metadata, body)
-
-
-def _build_task_note_document(task: ResolvedTask) -> tuple[OrderedDict[str, object], str]:
+def _build_task_note_document(config: AppConfig, task: ResolvedTask) -> tuple[OrderedDict[str, object], str]:
     created = iso_now()
     chain_id = chain_id_for_task(task.task)
     link_value = str(task.task.get("link") or "").strip()
@@ -150,7 +146,7 @@ def _build_task_note_document(task: ResolvedTask) -> tuple[OrderedDict[str, obje
         metadata["link"] = link_value
     metadata["created"] = created
     metadata["updated"] = created
-    body = "\n".join(
+    default_body = "\n".join(
         [
             f"# {task.description or task.task_short_uuid}",
             "",
@@ -163,15 +159,27 @@ def _build_task_note_document(task: ResolvedTask) -> tuple[OrderedDict[str, obje
             "## Next steps",
         ]
     )
-    return metadata, body
+    context = {
+        "task_short_uuid": task.task_short_uuid,
+        "task_uuid": task.task_uuid,
+        "description": task.description or "",
+        "project": task.project or "",
+        "chain_id": chain_id or "",
+        "link": link_value,
+        "created": created,
+        "updated": created,
+        "project_path": task.project or "",
+    }
+    return apply_template(
+        config.templates_dir,
+        kind="task-note",
+        context=context,
+        default_metadata=metadata,
+        default_body=default_body,
+    )
 
 
-def _render_chain_note(task: ResolvedTask) -> str:
-    metadata, body = _build_chain_note_document(task)
-    return _render_document_parts(metadata, body)
-
-
-def _build_chain_note_document(task: ResolvedTask) -> tuple[OrderedDict[str, object], str]:
+def _build_chain_note_document(config: AppConfig, task: ResolvedTask) -> tuple[OrderedDict[str, object], str]:
     created = iso_now()
     chain_id = chain_id_for_task(task.task)
     metadata: OrderedDict[str, object] = OrderedDict(
@@ -186,7 +194,7 @@ def _build_chain_note_document(task: ResolvedTask) -> tuple[OrderedDict[str, obj
             ("updated", created),
         ]
     )
-    body = "\n".join(
+    default_body = "\n".join(
         [
             f"# {task.description or chain_id}",
             "",
@@ -199,10 +207,27 @@ def _build_chain_note_document(task: ResolvedTask) -> tuple[OrderedDict[str, obj
             "## References",
         ]
     )
-    return metadata, body
+    context = {
+        "task_short_uuid": task.task_short_uuid,
+        "task_uuid": task.task_uuid,
+        "description": task.description or "",
+        "project": task.project or "",
+        "chain_id": chain_id or "",
+        "link": str(task.task.get("link") or "").strip(),
+        "created": created,
+        "updated": created,
+        "project_path": task.project or "",
+    }
+    return apply_template(
+        config.templates_dir,
+        kind="chain-note",
+        context=context,
+        default_metadata=metadata,
+        default_body=default_body,
+    )
 
 
-def _build_project_note_document(project_name: str) -> tuple[OrderedDict[str, object], str]:
+def _build_project_note_document(config: AppConfig, project_name: str) -> tuple[OrderedDict[str, object], str]:
     created = iso_now()
     project_path = [part.strip() for part in project_name.split(".") if part.strip()]
     metadata: OrderedDict[str, object] = OrderedDict(
@@ -214,7 +239,7 @@ def _build_project_note_document(project_name: str) -> tuple[OrderedDict[str, ob
             ("updated", created),
         ]
     )
-    body = "\n".join(
+    default_body = "\n".join(
         [
             f"# {project_name}",
             "",
@@ -229,7 +254,24 @@ def _build_project_note_document(project_name: str) -> tuple[OrderedDict[str, ob
             "## Active concerns",
         ]
     )
-    return metadata, body
+    context = {
+        "task_short_uuid": "",
+        "task_uuid": "",
+        "description": project_name,
+        "project": project_name,
+        "chain_id": "",
+        "link": "",
+        "created": created,
+        "updated": created,
+        "project_path": ".".join(project_path),
+    }
+    return apply_template(
+        config.templates_dir,
+        kind="project-note",
+        context=context,
+        default_metadata=metadata,
+        default_body=default_body,
+    )
 
 
 def _append_text(path: Path, text: str) -> None:
@@ -243,6 +285,3 @@ def _append_text(path: Path, text: str) -> None:
     normalized += chunk
     write_document(path, metadata, normalized)
 
-
-def _render_document_parts(metadata: OrderedDict[str, object], body: str) -> str:
-    return render_document(metadata, body)

@@ -93,6 +93,9 @@ User data lives in `~/.task/jot/`:
 - `tasks/<task_short_uuid>--<slug>.md`
 - `chains/<chain_id>--<slug>.md`
 - `projects/<project path>/index.md`
+- `templates/task-note.md`
+- `templates/chain-note.md`
+- `templates/project-note.md`
 - `index.json`
 - `ops.jsonl`
 - `config-jot.toml`
@@ -103,6 +106,28 @@ Rules:
 - annotations are the visible event stream
 - `index.json` is rebuildable cache
 - `ops.jsonl` is append-only audit state
+
+## Templates
+
+`jot` supports per-kind templates in `~/.task/jot/templates/`:
+
+- `task-note.md`
+- `chain-note.md`
+- `project-note.md`
+
+If a template file is missing, empty, or cannot be parsed, `jot` falls back to the built-in starter body for that note kind.
+
+Supported tokens in templates:
+
+- `{{task_short_uuid}}`
+- `{{task_uuid}}`
+- `{{description}}`
+- `{{project}}`
+- `{{chain_id}}`
+- `{{link}}`
+- `{{created}}`
+- `{{updated}}`
+- `{{project_path}}`
 
 ## Nautical Companion
 

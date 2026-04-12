@@ -7,6 +7,7 @@ BIN_DIR="$PREFIX/bin"
 LIB_DIR="$PREFIX/lib/jot"
 CONFIG_DIR="${JOT_HOME:-$HOME/.task/jot}"
 CONFIG_PATH="$CONFIG_DIR/config-jot.toml"
+TEMPLATES_DIR="$CONFIG_DIR/templates"
 
 SCRIPT_DIR="$(CDPATH= cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 
@@ -56,7 +57,9 @@ done
 mkdir -p "$BIN_DIR"
 mkdir -p "$LIB_DIR"
 mkdir -p "$CONFIG_DIR"
+mkdir -p "$TEMPLATES_DIR"
 rm -rf "$LIB_DIR/jot_core"
+rm -rf "$LIB_DIR/templates"
 
 install -m 755 "$SCRIPT_DIR/jot" "$LIB_DIR/jot"
 mkdir -p "$LIB_DIR/jot_core"
@@ -66,6 +69,8 @@ tar -C "$SCRIPT_DIR" \
   --exclude='jot_core/**/*.pyc' \
   -cf - jot_core | tar -C "$LIB_DIR" -xf -
 install -m 644 "$SCRIPT_DIR/config-jot.toml" "$LIB_DIR/config-jot.toml"
+mkdir -p "$LIB_DIR/templates"
+cp -R "$SCRIPT_DIR/templates/." "$LIB_DIR/templates/"
 ln -sfn "$LIB_DIR/jot" "$BIN_DIR/jot"
 
 if [[ ! -e "$CONFIG_PATH" ]]; then
@@ -75,6 +80,19 @@ else
   CONFIG_NOTE="Kept existing config: $CONFIG_PATH"
 fi
 
+installed_templates=0
+kept_templates=0
+for name in task-note.md chain-note.md project-note.md; do
+  src="$SCRIPT_DIR/templates/$name"
+  dst="$TEMPLATES_DIR/$name"
+  if [[ ! -e "$dst" ]]; then
+    install -m 644 "$src" "$dst"
+    installed_templates=$((installed_templates + 1))
+  else
+    kept_templates=$((kept_templates + 1))
+  fi
+done
+
 cat <<EOF
 Installed jot to:
   $LIB_DIR
@@ -83,6 +101,8 @@ Command link:
   $BIN_DIR/jot
 
 $CONFIG_NOTE
+Templates installed: $installed_templates
+Templates kept: $kept_templates
 
 If '$BIN_DIR' is not on your PATH, add this to your shell profile:
   export PATH="$BIN_DIR:\$PATH"
