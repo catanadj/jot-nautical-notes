@@ -9,11 +9,70 @@ def run_tui(service: JotService) -> int:
     try:
         from textual.app import App, ComposeResult
         from textual.containers import Horizontal, Vertical
-        from textual.widgets import DataTable, Footer, Header, Input, Static
+        from textual.screen import ModalScreen
+        from textual.widgets import Button, Checkbox, DataTable, Footer, Header, Input, Label, Static
     except Exception as exc:  # pragma: no cover
         raise RuntimeError(
             "textual is required for `jot tui` (install with: pip install textual)"
         ) from exc
+
+    class AddToHeadingModal(ModalScreen[dict[str, Any] | None]):
+        CSS = """
+        #dialog {
+            width: 70;
+            height: auto;
+            border: round $panel;
+            padding: 1 2;
+            background: $surface;
+        }
+        #dialog Input { margin: 1 0; }
+        #buttons { height: auto; }
+        """
+
+        BINDINGS = [("escape", "cancel", "Cancel")]
+
+        def compose(self) -> ComposeResult:
+            with Vertical(id="dialog"):
+                yield Label("Add entry under heading")
+                yield Input(placeholder="Heading, e.g. Notes", id="heading-input")
+                yield Input(placeholder="Entry text", id="entry-input")
+                yield Checkbox("Create heading if missing", id="create-heading")
+                with Horizontal(id="buttons"):
+                    yield Button("Cancel", id="cancel-btn")
+                    yield Button("Add", id="add-btn", variant="primary")
+
+        def action_cancel(self) -> None:
+            self.dismiss(None)
+
+        def on_button_pressed(self, event: Button.Pressed) -> None:
+            if event.button.id == "cancel-btn":
+                self.dismiss(None)
+                return
+            self._submit()
+
+        def on_input_submitted(self, event: Input.Submitted) -> None:
+            if event.input.id == "heading-input":
+                self.query_one("#entry-input", Input).focus()
+                return
+            self._submit()
+
+        def _submit(self) -> None:
+            heading = self.query_one("#heading-input", Input).value.strip()
+            entry = self.query_one("#entry-input", Input).value.strip()
+            create_heading = bool(self.query_one("#create-heading", Checkbox).value)
+            if not heading:
+                self.app.notify("Heading is required", severity="warning")
+                return
+            if not entry:
+                self.app.notify("Entry text is required", severity="warning")
+                return
+            self.dismiss(
+                {
+                    "heading": heading,
+                    "entry": entry,
+                    "create_heading": create_heading,
+                }
+            )
 
     class JotTUI(App[None]):
         CSS = """
@@ -30,12 +89,15 @@ def run_tui(service: JotService) -> int:
             ("q", "quit", "Quit"),
             ("r", "refresh", "Refresh"),
             ("slash", "focus_search", "Search"),
+            ("e", "edit_selected_task_note", "Edit note"),
+            ("a", "add_to_selected_task", "Add-to"),
         ]
 
         def __init__(self, svc: JotService) -> None:
             super().__init__()
             self.svc = svc
             self.recent_rows: list[dict[str, Any]] = []
+            self.current_task_ref: str | None = None
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
@@ -74,6 +136,43 @@ def run_tui(service: JotService) -> int:
         def action_focus_search(self) -> None:
             self.query_one("#search-input", Input).focus()
 
+        def action_edit_selected_task_note(self) -> None:
+            if not self.current_task_ref:
+                self.notify("Select a task row in Recent first", severity="warning")
+                return
+            try:
+                path = self.svc.open_task_note_in_editor(self.current_task_ref)
+            except Exception as exc:
+                self.notify(f"Editor failed: {exc}", severity="error")
+                return
+            self.notify(f"Opened: {path}")
+            self._load_task(self.current_task_ref)
+
+        async def action_add_to_selected_task(self) -> None:
+            if not self.current_task_ref:
+                self.notify("Select a task row in Recent first", severity="warning")
+                return
+            payload = await self.push_screen_wait(AddToHeadingModal())
+            if not payload:
+                return
+            try:
+                result = self.svc.add_to_task_heading(
+                    self.current_task_ref,
+                    heading=str(payload.get("heading") or ""),
+                    text=str(payload.get("entry") or ""),
+                    create_heading=bool(payload.get("create_heading")),
+                    exact=False,
+                )
+            except Exception as exc:
+                self.notify(f"Add-to failed: {exc}", severity="error")
+                return
+            self.notify(
+                f"Added under {result.get('heading')} ({result.get('heading_match')})",
+                severity="information",
+            )
+            self._refresh_recent()
+            self._load_task(self.current_task_ref)
+
         def on_input_submitted(self, event: Input.Submitted) -> None:
             if event.input.id != "search-input":
                 return
@@ -92,6 +191,7 @@ def run_tui(service: JotService) -> int:
             short_uuid = str(item.get("task_short_uuid") or "").strip()
             if not short_uuid:
                 return
+            self.current_task_ref = short_uuid
             self._load_task(short_uuid)
 
         def _refresh_recent(self) -> None:

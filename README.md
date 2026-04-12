@@ -82,6 +82,14 @@ All commands support `--json`.
 pip install textual
 ```
 
+TUI keybinds:
+
+- `q` quit
+- `r` refresh data
+- `/` focus search input
+- `e` open editor for selected task note (select a task row in Recent first)
+- `a` add a timestamped entry under a heading for selected task
+
 The CLI also supports:
 
 ```bash

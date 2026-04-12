@@ -3,10 +3,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
+from .editor import open_in_editor
 from .models import AppConfig
 from .nautical import nautical_summary
 from .notes import (
     chain_note_path,
+    ensure_task_note,
     find_chain_note,
     find_project_note,
     find_task_note,
@@ -15,6 +17,7 @@ from .notes import (
 )
 from .report import list_project_notes, recent_activity
 from .search import search_all
+from .storage import add_to_task_heading_storage, finalize_task_note_edit
 from .taskwarrior import TaskwarriorClient
 
 
@@ -56,4 +59,34 @@ class JotService:
             },
             "events": self.taskwarrior.annotations_for_task(task),
             "nautical": nautical_summary(task.task),
+        }
+
+    def open_task_note_in_editor(self, task_ref: str) -> str:
+        task = self.taskwarrior.resolve_task(task_ref)
+        note = ensure_task_note(self.config, task)
+        open_in_editor(note.note_path, self.config.editor_command)
+        finalize_task_note_edit(self.config, task, note)
+        return str(note.note_path)
+
+    def add_to_task_heading(
+        self,
+        task_ref: str,
+        *,
+        heading: str,
+        text: str,
+        create_heading: bool = False,
+        exact: bool = False,
+    ) -> dict[str, Any]:
+        task = self.taskwarrior.resolve_task(task_ref)
+        result = add_to_task_heading_storage(
+            self.config,
+            task,
+            heading=heading,
+            text=text,
+            create_heading=create_heading,
+            exact=exact,
+        )
+        return {
+            "task_short_uuid": task.task_short_uuid,
+            **result,
         }
