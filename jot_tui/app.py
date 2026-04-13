@@ -80,12 +80,12 @@ def run_tui(service: JotService) -> int:
         CSS = """
         Screen { layout: vertical; }
         #browse-top { height: 1fr; }
-        #browse-bottom { height: 1fr; }
         #task-browser-pane, #project-browser-pane { height: 1fr; }
         #browse-tasks { border: round $panel; }
         #browse-projects { border: round $panel; }
         #browse-task-detail, #browse-project-detail { height: auto; min-height: 12; border: round $panel; }
         #browse-search { height: 1fr; }
+        #browse-search.hidden { display: none; }
         #browse-search-left, #browse-search-right { width: 1fr; border: round $panel; }
         #latest-pane { border: round $panel; }
         #search-input { margin: 0 1; }
@@ -114,6 +114,7 @@ def run_tui(service: JotService) -> int:
             self.current_task_chain_path: str = ""
             self.current_task_project: str = ""
             self.current_project_name: str | None = None
+            self.search_active = False
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
@@ -164,6 +165,7 @@ def run_tui(service: JotService) -> int:
             await self._refresh_recent_async()
             await self._refresh_tasks_async()
             await self._refresh_projects_async()
+            self._set_search_visibility(False)
             self._update_action_hints()
 
         async def action_refresh(self) -> None:
@@ -231,6 +233,7 @@ def run_tui(service: JotService) -> int:
                 return
             query = event.value.strip()
             if not query:
+                self._clear_search()
                 return
             self._run_search(query)
 
@@ -310,6 +313,7 @@ def run_tui(service: JotService) -> int:
                 table.add_row(str(item.get("project") or ""), str(item.get("updated") or ""))
 
         def _run_search(self, query: str) -> None:
+            self._set_search_visibility(True)
             asyncio.create_task(self._run_search_async(query))
 
         async def _run_search_async(self, query: str) -> None:
@@ -330,6 +334,19 @@ def run_tui(service: JotService) -> int:
                     str(item.get("annotation") or ""),
                     str(item.get("ts") or ""),
                 )
+
+        def _clear_search(self) -> None:
+            self.query_one("#search-notes-table", DataTable).clear()
+            self.query_one("#search-events-table", DataTable).clear()
+            self._set_search_visibility(False)
+
+        def _set_search_visibility(self, visible: bool) -> None:
+            self.search_active = visible
+            search = self.query_one("#browse-search", Horizontal)
+            if visible:
+                search.remove_class("hidden")
+            else:
+                search.add_class("hidden")
 
         async def _load_task_async(self, task_ref: str) -> None:
             detail = self.query_one("#task-detail", Static)
