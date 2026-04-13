@@ -80,8 +80,12 @@ def run_tui(service: JotService) -> int:
         CSS = """
         Screen { layout: vertical; }
         #browse-top { height: 1fr; }
-        #browse-left { width: 2fr; border: round $panel; }
-        #browse-right { width: 3fr; border: round $panel; }
+        #browse-bottom { height: 1fr; }
+        #browse-tasks { width: 2fr; border: round $panel; }
+        #browse-projects { width: 1fr; border: round $panel; }
+        #browse-detail { height: auto; min-height: 12; border: round $panel; }
+        #browse-search { height: 1fr; }
+        #browse-search-left, #browse-search-right { width: 1fr; border: round $panel; }
         #latest-pane { border: round $panel; }
         #search-input { margin: 0 1; }
         #task-detail { padding: 1; }
@@ -116,22 +120,26 @@ def run_tui(service: JotService) -> int:
             with TabbedContent(initial="browse-tab"):
                 with TabPane("Browse", id="browse-tab"):
                     with Horizontal(id="browse-top"):
-                        with Vertical(id="browse-left"):
+                        with Vertical(id="browse-tasks"):
                             tasks = DataTable(id="tasks-table", cursor_type="row")
-                            tasks.add_columns("id", "project", "description")
+                            tasks.add_columns("id", "description", "project")
                             yield Static("Tasks", classes="title")
                             yield tasks
+                        with Vertical(id="browse-projects"):
                             projects = DataTable(id="projects-table", cursor_type="row")
                             projects.add_columns("project", "updated")
                             yield Static("Projects", classes="title")
                             yield projects
-                        with Vertical(id="browse-right"):
-                            yield Static("Task Detail", classes="title")
-                            yield Static("Select a task row to load details.", id="task-detail")
+                    with Vertical(id="browse-detail"):
+                        yield Static("Task Detail", classes="title")
+                        yield Static("Select a task row to load details.", id="task-detail")
+                    with Horizontal(id="browse-search"):
+                        with Vertical(id="browse-search-left"):
                             notes = DataTable(id="search-notes-table", cursor_type="row")
                             notes.add_columns("kind", "path", "match")
                             yield Static("Search Notes", classes="title")
                             yield notes
+                        with Vertical(id="browse-search-right"):
                             events = DataTable(id="search-events-table", cursor_type="row")
                             events.add_columns("task", "annotation", "ts")
                             yield Static("Search Events", classes="title")
@@ -283,8 +291,8 @@ def run_tui(service: JotService) -> int:
             for item in self.task_rows:
                 table.add_row(
                     str(item.get("short_uuid") or ""),
-                    str(item.get("project") or ""),
                     str(item.get("description") or ""),
+                    str(item.get("project") or ""),
                 )
 
         async def _refresh_projects_async(self) -> None:
