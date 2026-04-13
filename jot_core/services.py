@@ -33,6 +33,10 @@ class JotService:
     def projects(self) -> list[dict[str, Any]]:
         return list_project_notes(self.config)
 
+    def project_note_path_for_name(self, project_name: str) -> str:
+        note = find_project_note(self.config, project_name)
+        return str(note or project_note_path(self.config, project_name))
+
     def tasks(self, limit: int = 200) -> list[dict[str, Any]]:
         return self.taskwarrior.list_tasks(limit=limit, status="pending")
 

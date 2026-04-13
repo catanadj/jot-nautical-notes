@@ -81,14 +81,15 @@ def run_tui(service: JotService) -> int:
         Screen { layout: vertical; }
         #browse-top { height: 1fr; }
         #browse-bottom { height: 1fr; }
-        #browse-tasks { width: 2fr; border: round $panel; }
-        #browse-projects { width: 1fr; border: round $panel; }
-        #browse-detail { height: auto; min-height: 12; border: round $panel; }
+        #task-browser-pane, #project-browser-pane { height: 1fr; }
+        #browse-tasks { border: round $panel; }
+        #browse-projects { border: round $panel; }
+        #browse-task-detail, #browse-project-detail { height: auto; min-height: 12; border: round $panel; }
         #browse-search { height: 1fr; }
         #browse-search-left, #browse-search-right { width: 1fr; border: round $panel; }
         #latest-pane { border: round $panel; }
         #search-input { margin: 0 1; }
-        #task-detail { padding: 1; }
+        #task-detail, #project-detail { padding: 1; }
         #context-hints { padding: 0 1; color: $text-muted; }
         #recent-table, #tasks-table, #projects-table, #search-notes-table, #search-events-table { height: 1fr; }
         """
@@ -120,19 +121,25 @@ def run_tui(service: JotService) -> int:
             with TabbedContent(initial="browse-tab"):
                 with TabPane("Browse", id="browse-tab"):
                     with Horizontal(id="browse-top"):
-                        with Vertical(id="browse-tasks"):
-                            tasks = DataTable(id="tasks-table", cursor_type="row")
-                            tasks.add_columns("id", "description", "project")
-                            yield Static("Tasks", classes="title")
-                            yield tasks
-                        with Vertical(id="browse-projects"):
-                            projects = DataTable(id="projects-table", cursor_type="row")
-                            projects.add_columns("project", "updated")
-                            yield Static("Projects", classes="title")
-                            yield projects
-                    with Vertical(id="browse-detail"):
-                        yield Static("Task Detail", classes="title")
-                        yield Static("Select a task row to load details.", id="task-detail")
+                        with TabbedContent(initial="task-browser-pane"):
+                            with TabPane("Tasks", id="task-browser-pane"):
+                                with Vertical(id="browse-tasks"):
+                                    tasks = DataTable(id="tasks-table", cursor_type="row")
+                                    tasks.add_columns("id", "description", "project")
+                                    yield Static("Tasks", classes="title")
+                                    yield tasks
+                                with Vertical(id="browse-task-detail"):
+                                    yield Static("Task Detail", classes="title")
+                                    yield Static("Select a task row to load details.", id="task-detail")
+                            with TabPane("Projects", id="project-browser-pane"):
+                                with Vertical(id="browse-projects"):
+                                    projects = DataTable(id="projects-table", cursor_type="row")
+                                    projects.add_columns("project", "updated")
+                                    yield Static("Projects", classes="title")
+                                    yield projects
+                                with Vertical(id="browse-project-detail"):
+                                    yield Static("Project Detail", classes="title")
+                                    yield Static("Select a project row to load details.", id="project-detail")
                     with Horizontal(id="browse-search"):
                         with Vertical(id="browse-search-left"):
                             notes = DataTable(id="search-notes-table", cursor_type="row")
@@ -259,7 +266,7 @@ def run_tui(service: JotService) -> int:
                     return
                 self.current_project_name = str(self.project_rows[row_index].get("project") or "").strip() or None
                 if self.current_project_name:
-                    self.notify(f"Project selected: {self.current_project_name}")
+                    asyncio.create_task(self._load_project_async(self.current_project_name))
                 self._update_action_hints()
 
         async def _refresh_recent_async(self) -> None:
@@ -357,6 +364,14 @@ def run_tui(service: JotService) -> int:
             else:
                 for item in events[:8]:
                     lines.append(f"  {item.get('entry') or ''} {item.get('description') or ''}".strip())
+            detail.update("\n".join(lines))
+            self._update_action_hints()
+
+        async def _load_project_async(self, project_name: str) -> None:
+            detail = self.query_one("#project-detail", Static)
+            path = await asyncio.to_thread(self.svc.project_note_path_for_name, project_name)
+            lines = [f"Project {project_name}", ""]
+            lines.append(f"Note: {path}")
             detail.update("\n".join(lines))
             self._update_action_hints()
 
