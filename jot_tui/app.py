@@ -159,7 +159,7 @@ def run_tui(service: JotService) -> int:
             ("d", "delete_selected_note", "Delete note"),
             ("a", "add_to_selected_task", "Add-to task"),
             ("c", "add_to_selected_chain", "Add-to chain"),
-            ("p", "add_to_project_context", "Add-to project"),
+            ("p", "open_project_context", "Open project"),
         ]
 
         def __init__(self, svc: JotService) -> None:
@@ -389,15 +389,12 @@ def run_tui(service: JotService) -> int:
                 lambda payload: self._on_add_to_payload("chain", payload),
             )
 
-        def action_add_to_project_context(self) -> None:
+        def action_open_project_context(self) -> None:
             project = self.current_project_name or self.current_task_project
             if not project:
                 self.notify("Select a project row or a task with a project", severity="warning")
                 return
-            self.push_screen(
-                AddToHeadingModal(),
-                lambda payload: self._on_add_to_payload("project", payload),
-            )
+            self._open_project_workspace(project)
 
         def _on_add_to_payload(self, kind: str, payload: dict[str, Any] | None) -> None:
             if not payload:
@@ -751,7 +748,7 @@ def run_tui(service: JotService) -> int:
             if self.current_task_ref and self.current_task_chain_path:
                 hints.append("c add-chain")
             if self.current_project_name or self.current_task_project:
-                hints.append("p add-project")
+                hints.append("p open-project")
             self.query_one("#context-hints", Static).update(" | ".join(hints))
 
         def _active_note_target(self) -> dict[str, Any] | None:

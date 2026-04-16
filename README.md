@@ -95,7 +95,7 @@ TUI keybinds:
 - `d` move the active note to `.jot_trash/` after confirmation
 - `a` add a timestamped entry under a heading for selected task
 - `c` add a timestamped entry under a heading for selected chain note (from selected task)
-- `p` add a timestamped entry under a heading for selected project (project row or selected task project)
+- `p` open the project workspace for the selected project or task project
 
 TUI panes:
 
