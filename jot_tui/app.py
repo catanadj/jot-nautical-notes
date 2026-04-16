@@ -429,9 +429,10 @@ def run_tui(service: JotService) -> int:
             if nautical:
                 lines.append("")
                 lines.append("Nautical:")
-                for key, value in nautical.items():
+                for key in ("chain_id", "anchor", "anchor_mode", "link", "cp"):
+                    value = nautical.get(key)
                     if value not in (None, "", []):
-                        lines.append(f"  {key}: {value}")
+                        lines.append(f"  {self._pretty_label(key)}: {value}")
             notes = data.get("notes", {})
             task_note_data = notes.get("task") or {}
             chain_note_data = notes.get("chain") or {}
@@ -440,7 +441,12 @@ def run_tui(service: JotService) -> int:
             self.current_task_project = str(task.get("project") or "").strip()
             lines.append("")
             events = data.get("events") or []
-            lines.append(f"Events: {len(events)}")
+            lines.append(f"Events: {len(events)} total")
+            lines.append(f"Task note: {'present' if task_note_data.get('body') else 'empty'}")
+            if chain_note_data.get("path"):
+                lines.append(f"Chain note: {'present' if chain_note_data.get('body') else 'empty'}")
+            if project_note_data.get("path"):
+                lines.append(f"Project note: {'present' if project_note_data.get('body') else 'empty'}")
             summary.update("\n".join(lines))
             task_note.update(self._render_note_panel("Task Note", task_note_data))
             chain_note.update(self._render_note_panel("Chain Note", chain_note_data))
@@ -453,7 +459,18 @@ def run_tui(service: JotService) -> int:
             note_body = self.query_one("#project-note-body", Static)
             data = await asyncio.to_thread(self.svc.project_workspace, project_name)
             note = data.get("note") or {}
-            summary.update(f"Project {project_name}\n\nNote: {note.get('path') or ''}")
+            body = str(note.get("body") or "").strip()
+            summary.update(
+                "\n".join(
+                    [
+                        f"Project {project_name}",
+                        "",
+                        f"Note: {note.get('path') or ''}",
+                        "",
+                        f"Status: {'present' if body else 'empty'}",
+                    ]
+                )
+            )
             note_body.update(self._render_note_panel("Project Note", note))
             self._update_action_hints()
 
@@ -540,7 +557,7 @@ def run_tui(service: JotService) -> int:
             lines = [title, ""]
             lines.append(f"Path: {path or '(none)'}")
             lines.append("")
-            lines.append(body or "(empty)")
+            lines.append(self._note_excerpt(body) or "(empty)")
             return "\n".join(lines)
 
         def _render_events_panel(self, events: list[dict[str, Any]]) -> str:
@@ -548,8 +565,31 @@ def run_tui(service: JotService) -> int:
                 return "Events\n\n(none)"
             lines = ["Events", ""]
             for item in events[:12]:
-                lines.append(f"{item.get('entry') or ''} {item.get('description') or ''}".strip())
+                entry = str(item.get("entry") or "").strip()
+                desc = str(item.get("description") or "").strip()
+                lines.append(f"{entry}  {desc}".strip())
             return "\n".join(lines)
+
+        def _note_excerpt(self, body: str, *, max_lines: int = 16, max_width: int = 92) -> str:
+            cleaned: list[str] = []
+            for raw in str(body or "").splitlines():
+                line = raw.rstrip()
+                if not line.strip():
+                    if cleaned and cleaned[-1] != "":
+                        cleaned.append("")
+                    continue
+                cleaned.append(line)
+                if len(cleaned) >= max_lines:
+                    break
+            if not cleaned:
+                return ""
+            out: list[str] = []
+            for line in cleaned[:max_lines]:
+                out.append(line if len(line) <= max_width else line[: max_width - 3] + "...")
+            return "\n".join(out).strip()
+
+        def _pretty_label(self, key: str) -> str:
+            return str(key).replace("_", " ").capitalize()
 
     app = JotTUI(service)
     app.run()
