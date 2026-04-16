@@ -77,10 +77,13 @@ def _search_notes(
                 "description": str(metadata.get("description") or ""),
                 "match": _excerpt(str(body or ""), needle),
             }
+            task_short_uuid = str(metadata.get("task_short_uuid") or "").strip()
             if project_name:
                 item["project"] = project_name
             if note_chain_id:
                 item["chain_id"] = note_chain_id
+            if task_short_uuid:
+                item["task_short_uuid"] = task_short_uuid
             hits.append(item)
     return hits
 
