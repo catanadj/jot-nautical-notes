@@ -153,6 +153,7 @@ def run_tui(service: JotService) -> int:
         BINDINGS = [
             ("q", "quit", "Quit"),
             ("r", "refresh", "Refresh"),
+            ("u", "refresh_current", "Update"),
             ("enter", "open_selected", "Open"),
             ("slash", "focus_search", "Search"),
             ("e", "edit_selected_task_note", "Edit note"),
@@ -171,6 +172,7 @@ def run_tui(service: JotService) -> int:
             self.project_rows: list[dict[str, Any]] = []
             self.search_note_rows: list[dict[str, Any]] = []
             self.search_event_rows: list[dict[str, Any]] = []
+            self.current_search_query: str = ""
             self.task_filter_project: str = ""
             self.task_filter_tag: str = ""
             self.task_filter_notes_only: bool = False
@@ -270,6 +272,10 @@ def run_tui(service: JotService) -> int:
             await self._refresh_recent_async()
             await self._refresh_tasks_async()
             await self._refresh_projects_async()
+            self._update_action_hints()
+
+        async def action_refresh_current(self) -> None:
+            await self._refresh_current_context_async()
             self._update_action_hints()
 
         def action_focus_search(self) -> None:
@@ -412,6 +418,7 @@ def run_tui(service: JotService) -> int:
             if event.input.id != "search-input":
                 return
             query = event.value.strip()
+            self.current_search_query = query
             if not query:
                 self.query_one("#search-notes-table", DataTable).clear()
                 self.query_one("#search-events-table", DataTable).clear()
@@ -573,6 +580,33 @@ def run_tui(service: JotService) -> int:
                     str(item.get("annotation") or ""),
                     str(item.get("ts") or ""),
                 )
+
+        async def _refresh_current_context_async(self) -> None:
+            main_tab = self.query_one("#main-tabs", TabbedContent).active
+            if main_tab == "browse-tab":
+                browse_tab = self.query_one("#browse-browser-tabs", TabbedContent).active
+                if browse_tab == "task-browser-pane":
+                    if self.current_task_ref:
+                        await self._refresh_tasks_async()
+                        await self._load_task_async(self.current_task_ref)
+                    return
+                if browse_tab == "project-browser-pane":
+                    await self._refresh_projects_async()
+                    if self.current_project_name:
+                        await self._load_project_async(self.current_project_name)
+                    return
+            if main_tab == "latest-tab":
+                if self.current_latest_task_ref:
+                    await self._refresh_recent_async()
+                    await self._load_latest_task_async(self.current_latest_task_ref)
+                return
+            if main_tab == "search-tab":
+                if self.current_search_query:
+                    await self._run_search_async(self.current_search_query)
+                return
+            await self._refresh_recent_async()
+            await self._refresh_tasks_async()
+            await self._refresh_projects_async()
 
         async def _load_task_async(self, task_ref: str) -> None:
             summary = self.query_one("#task-summary", Static)
