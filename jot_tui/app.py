@@ -95,6 +95,12 @@ def run_tui(service: JotService) -> int:
             overflow: auto;
         }
         #latest-pane { border: round $panel; }
+        #latest-workspace-tabs { height: 1fr; }
+        #latest-summary, #latest-task-note-preview, #latest-chain-note-preview, #latest-project-note-preview, #latest-events-preview {
+            padding: 1;
+            height: 1fr;
+            overflow: auto;
+        }
         #search-bar { height: auto; }
         #search-input { margin: 0 1 0 0; width: 1fr; }
         #context-hints { padding: 0 1; color: $text-muted; }
@@ -124,6 +130,7 @@ def run_tui(service: JotService) -> int:
             self.task_filter_project: str = ""
             self.task_filter_tag: str = ""
             self.task_filter_notes_only: bool = False
+            self.current_latest_task_ref: str | None = None
             self.current_task_ref: str | None = None
             self.current_task_chain_path: str = ""
             self.current_task_project: str = ""
@@ -195,6 +202,17 @@ def run_tui(service: JotService) -> int:
                         recent.add_columns("ts", "kind", "id", "summary")
                         yield Static("Recent Activity", classes="title")
                         yield recent
+                        with TabbedContent(initial="latest-summary-pane", id="latest-workspace-tabs"):
+                            with TabPane("Summary", id="latest-summary-pane"):
+                                yield Static("Select a recent row to load details.", id="latest-summary")
+                            with TabPane("Task Note", id="latest-task-note-pane"):
+                                yield Static("No task note loaded.", id="latest-task-note-preview")
+                            with TabPane("Chain Note", id="latest-chain-note-pane"):
+                                yield Static("No chain note loaded.", id="latest-chain-note-preview")
+                            with TabPane("Project Note", id="latest-project-note-pane"):
+                                yield Static("No project note loaded.", id="latest-project-note-preview")
+                            with TabPane("Events", id="latest-events-pane"):
+                                yield Static("No events loaded.", id="latest-events-preview")
             yield Static("Actions: / search | r refresh | q quit", id="context-hints")
             yield Footer()
 
@@ -227,7 +245,7 @@ def run_tui(service: JotService) -> int:
                     return
                 short_uuid = str(self.recent_rows[row_index].get("task_short_uuid") or "").strip()
                 if short_uuid:
-                    self._open_task_workspace(short_uuid)
+                    self._open_latest_workspace(short_uuid)
                 return
             if table_id == "tasks-table":
                 if row_index >= len(self.task_rows):
@@ -284,7 +302,10 @@ def run_tui(service: JotService) -> int:
                 self.notify(f"Editor failed: {exc}", severity="error")
                 return
             self.notify(f"Opened: {path}")
-            if self.current_task_ref:
+            main_tab = self.query_one("#main-tabs", TabbedContent).active
+            if main_tab == "latest-tab" and self.current_latest_task_ref:
+                asyncio.create_task(self._load_latest_task_async(self.current_latest_task_ref))
+            elif self.current_task_ref:
                 asyncio.create_task(self._load_task_async(self.current_task_ref))
             elif self.current_project_name:
                 asyncio.create_task(self._load_project_async(self.current_project_name))
@@ -370,7 +391,7 @@ def run_tui(service: JotService) -> int:
                 short_uuid = str(item.get("task_short_uuid") or "").strip()
                 if not short_uuid:
                     return
-                self._open_task_workspace(short_uuid)
+                self._open_latest_workspace(short_uuid)
                 return
             if event.data_table.id == "tasks-table":
                 row_index = event.cursor_row
@@ -532,6 +553,56 @@ def run_tui(service: JotService) -> int:
             self._focus_best_task_workspace_tab(task_note_data, chain_note_data, project_note_data, events)
             self._update_action_hints()
 
+        async def _load_latest_task_async(self, task_ref: str) -> None:
+            summary = self.query_one("#latest-summary", Static)
+            task_note = self.query_one("#latest-task-note-preview", Static)
+            chain_note = self.query_one("#latest-chain-note-preview", Static)
+            project_note = self.query_one("#latest-project-note-preview", Static)
+            events_view = self.query_one("#latest-events-preview", Static)
+            try:
+                data = await asyncio.to_thread(self.svc.task_workspace, task_ref)
+            except Exception as exc:
+                summary.update(f"Latest load failed for {task_ref}\n\n{exc}")
+                return
+            lines: list[str] = []
+            task = data.get("task", {})
+            lines.append(f"Task {task.get('short_uuid')}")
+            lines.append(f"Description: {task.get('description')}")
+            lines.append(f"Project: {task.get('project') or ''}")
+            tags = task.get("tags") or []
+            if tags:
+                lines.append(f"Tags: {', '.join(tags)}")
+            nautical = data.get("nautical") or {}
+            if nautical:
+                lines.append("")
+                lines.append("Nautical:")
+                for key in ("chain_id", "anchor", "anchor_mode", "link", "cp"):
+                    value = nautical.get(key)
+                    if value not in (None, "", []):
+                        lines.append(f"  {self._pretty_label(key)}: {value}")
+            notes = data.get("notes", {})
+            task_note_data = notes.get("task") or {}
+            chain_note_data = notes.get("chain") or {}
+            project_note_data = notes.get("project") or {}
+            self.current_latest_task_ref = task_ref
+            self.current_task_chain_path = str(chain_note_data.get("path") or "").strip()
+            self.current_task_project = str(task.get("project") or "").strip()
+            lines.append("")
+            events = data.get("events") or []
+            lines.append(f"Events: {len(events)} total")
+            lines.append(f"Task note: {'present' if task_note_data.get('body') else 'empty'}")
+            if chain_note_data.get("path"):
+                lines.append(f"Chain note: {'present' if chain_note_data.get('body') else 'empty'}")
+            if project_note_data.get("path"):
+                lines.append(f"Project note: {'present' if project_note_data.get('body') else 'empty'}")
+            summary.update("\n".join(lines))
+            task_note.update(self._render_note_panel("Task Note", task_note_data))
+            chain_note.update(self._render_note_panel("Chain Note", chain_note_data))
+            project_note.update(self._render_note_panel("Project Note", project_note_data))
+            events_view.update(self._render_events_panel(events))
+            self._focus_best_latest_workspace_tab(task_note_data, chain_note_data, project_note_data, events)
+            self._update_action_hints()
+
         async def _load_project_async(self, project_name: str) -> None:
             summary = self.query_one("#project-summary", Static)
             note_body = self.query_one("#project-note-body", Static)
@@ -602,7 +673,10 @@ def run_tui(service: JotService) -> int:
             await self._refresh_recent_async()
             await self._refresh_tasks_async()
             await self._refresh_projects_async()
-            if self.current_task_ref:
+            main_tab = self.query_one("#main-tabs", TabbedContent).active
+            if main_tab == "latest-tab" and self.current_latest_task_ref:
+                await self._load_latest_task_async(self.current_latest_task_ref)
+            elif self.current_task_ref:
                 await self._load_task_async(self.current_task_ref)
 
         def _update_action_hints(self) -> None:
@@ -623,6 +697,14 @@ def run_tui(service: JotService) -> int:
             asyncio.create_task(self._load_task_async(task_ref))
             self._update_action_hints()
 
+        def _open_latest_workspace(self, task_ref: str) -> None:
+            self.current_latest_task_ref = task_ref
+            self.current_task_ref = task_ref
+            self.current_project_name = None
+            self.query_one("#main-tabs", TabbedContent).active = "latest-tab"
+            asyncio.create_task(self._load_latest_task_async(task_ref))
+            self._update_action_hints()
+
         def _open_project_workspace(self, project_name: str) -> None:
             self.current_project_name = project_name
             self.query_one("#main-tabs", TabbedContent).active = "browse-tab"
@@ -632,28 +714,40 @@ def run_tui(service: JotService) -> int:
 
         def _open_active_note_in_editor(self) -> str:
             main_tab = self.query_one("#main-tabs", TabbedContent).active
-            if main_tab != "browse-tab":
-                raise RuntimeError("open a task or project workspace first")
-            browse_tab = self.query_one("#browse-browser-tabs", TabbedContent).active
-            if browse_tab == "task-browser-pane":
-                if not self.current_task_ref:
-                    raise RuntimeError("select a task first")
-                active = self.query_one("#task-workspace-tabs", TabbedContent).active
-                with self.suspend():
-                    if active == "chain-note-pane":
-                        return self.svc.open_chain_note_in_editor(self.current_task_ref)
-                    if active == "project-note-pane":
-                        project = self.current_task_project or self.current_project_name
-                        if not project:
-                            raise RuntimeError("selected task has no project note context")
+            if main_tab == "browse-tab":
+                browse_tab = self.query_one("#browse-browser-tabs", TabbedContent).active
+                if browse_tab == "task-browser-pane":
+                    if not self.current_task_ref:
+                        raise RuntimeError("select a task first")
+                    active = self.query_one("#task-workspace-tabs", TabbedContent).active
+                    with self.suspend():
+                        if active == "chain-note-pane":
+                            return self.svc.open_chain_note_in_editor(self.current_task_ref)
+                        if active == "project-note-pane":
+                            project = self.current_task_project or self.current_project_name
+                            if not project:
+                                raise RuntimeError("selected task has no project note context")
+                            return self.svc.open_project_note_in_editor(project)
+                        return self.svc.open_task_note_in_editor(self.current_task_ref)
+                if browse_tab == "project-browser-pane":
+                    project = self.current_project_name or self.current_task_project
+                    if not project:
+                        raise RuntimeError("select a project first")
+                    with self.suspend():
                         return self.svc.open_project_note_in_editor(project)
-                    return self.svc.open_task_note_in_editor(self.current_task_ref)
-            if browse_tab == "project-browser-pane":
-                project = self.current_project_name or self.current_task_project
-                if not project:
-                    raise RuntimeError("select a project first")
+            if main_tab == "latest-tab":
+                if not self.current_latest_task_ref:
+                    raise RuntimeError("select a recent task first")
+                active = self.query_one("#latest-workspace-tabs", TabbedContent).active
                 with self.suspend():
-                    return self.svc.open_project_note_in_editor(project)
+                    if active == "latest-chain-note-pane":
+                        return self.svc.open_chain_note_in_editor(self.current_latest_task_ref)
+                    if active == "latest-project-note-pane":
+                        project = self.current_task_project
+                        if not project:
+                            raise RuntimeError("selected recent task has no project note context")
+                        return self.svc.open_project_note_in_editor(project)
+                    return self.svc.open_task_note_in_editor(self.current_latest_task_ref)
             raise RuntimeError("no openable workspace is active")
 
         def _focus_best_task_workspace_tab(
@@ -681,6 +775,25 @@ def run_tui(service: JotService) -> int:
                 tabs.active = "project-note-body-pane"
             else:
                 tabs.active = "project-summary-pane"
+
+        def _focus_best_latest_workspace_tab(
+            self,
+            task_note: dict[str, Any],
+            chain_note: dict[str, Any],
+            project_note: dict[str, Any],
+            events: list[dict[str, Any]],
+        ) -> None:
+            tabs = self.query_one("#latest-workspace-tabs", TabbedContent)
+            if str(task_note.get("body") or "").strip():
+                tabs.active = "latest-task-note-pane"
+            elif str(chain_note.get("body") or "").strip():
+                tabs.active = "latest-chain-note-pane"
+            elif str(project_note.get("body") or "").strip():
+                tabs.active = "latest-project-note-pane"
+            elif events:
+                tabs.active = "latest-events-pane"
+            else:
+                tabs.active = "latest-summary-pane"
 
         def _render_note_panel(self, title: str, note: dict[str, Any]) -> str:
             path = str(note.get("path") or "").strip()
