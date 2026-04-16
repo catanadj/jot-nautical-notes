@@ -4,6 +4,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from .editor import open_in_editor
+from .frontmatter import read_document
 from .models import AppConfig
 from .nautical import nautical_summary
 from .notes import (
@@ -67,6 +68,51 @@ class JotService:
             },
             "events": self.taskwarrior.annotations_for_task(task),
             "nautical": nautical_summary(task.task),
+        }
+
+    def task_workspace(self, task_ref: str) -> dict[str, Any]:
+        task = self.taskwarrior.resolve_task(task_ref)
+        task_note = find_task_note(self.config, task)
+        chain_note = find_chain_note(self.config, task)
+        project_note = find_project_note(self.config, task.project)
+
+        def _note_payload(path) -> dict[str, str]:
+            resolved = str(path or "")
+            if not path:
+                return {"path": "", "body": ""}
+            _metadata, body = read_document(path)
+            return {"path": resolved, "body": body.strip()}
+
+        return {
+            "task": {
+                "uuid": task.task_uuid,
+                "short_uuid": task.task_short_uuid,
+                "description": task.description,
+                "project": task.project,
+                "tags": list(task.tags),
+            },
+            "nautical": nautical_summary(task.task),
+            "notes": {
+                "task": _note_payload(task_note or task_note_path(self.config, task)),
+                "chain": _note_payload(chain_note),
+                "project": _note_payload(project_note),
+            },
+            "events": self.taskwarrior.annotations_for_task(task),
+        }
+
+    def project_workspace(self, project_name: str) -> dict[str, Any]:
+        note = find_project_note(self.config, project_name)
+        if note:
+            _metadata, body = read_document(note)
+            note_data = {"path": str(note), "body": body.strip()}
+        else:
+            note_data = {
+                "path": str(project_note_path(self.config, project_name)),
+                "body": "",
+            }
+        return {
+            "project": project_name,
+            "note": note_data,
         }
 
     def open_task_note_in_editor(self, task_ref: str) -> str:

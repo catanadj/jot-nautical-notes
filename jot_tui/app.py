@@ -80,18 +80,18 @@ def run_tui(service: JotService) -> int:
         CSS = """
         Screen { layout: vertical; }
         #browse-top { height: 1fr; }
-        #task-browser-pane, #project-browser-pane { height: 1fr; }
-        #browse-tasks { border: round $panel; }
-        #browse-projects { border: round $panel; }
-        #browse-task-detail, #browse-project-detail { height: auto; min-height: 12; border: round $panel; }
-        #browse-search { height: 1fr; }
-        #browse-search.hidden { display: none; }
-        #browse-search-left, #browse-search-right { width: 1fr; border: round $panel; }
+        #task-browser-pane, #project-browser-pane, #search-tab { height: 1fr; }
+        #browse-tasks, #browse-projects { width: 1fr; border: round $panel; }
+        #task-workspace, #project-workspace { width: 1fr; border: round $panel; }
+        #task-workspace-tabs, #project-workspace-tabs { height: 1fr; }
+        #task-summary, #task-note-preview, #chain-note-preview, #project-note-preview, #task-events-preview, #project-summary, #project-note-body {
+            padding: 1;
+            height: 1fr;
+            overflow: auto;
+        }
         #latest-pane { border: round $panel; }
         #search-bar { height: auto; }
         #search-input { margin: 0 1 0 0; width: 1fr; }
-        #search-toggle { width: 16; }
-        #task-detail, #project-detail { padding: 1; }
         #context-hints { padding: 0 1; color: $text-muted; }
         #recent-table, #tasks-table, #projects-table, #search-notes-table, #search-events-table { height: 1fr; }
         """
@@ -116,46 +116,62 @@ def run_tui(service: JotService) -> int:
             self.current_task_chain_path: str = ""
             self.current_task_project: str = ""
             self.current_project_name: str | None = None
-            self.search_visible = False
 
         def compose(self) -> ComposeResult:
             yield Header(show_clock=True)
-            with Horizontal(id="search-bar"):
-                yield Input(placeholder="Search notes/events and press Enter", id="search-input")
-                yield Button("Show Search", id="search-toggle")
             with TabbedContent(initial="browse-tab"):
                 with TabPane("Browse", id="browse-tab"):
                     with Horizontal(id="browse-top"):
                         with TabbedContent(initial="task-browser-pane"):
                             with TabPane("Tasks", id="task-browser-pane"):
-                                with Vertical(id="browse-tasks"):
-                                    tasks = DataTable(id="tasks-table", cursor_type="row")
-                                    tasks.add_columns("id", "description", "project")
-                                    yield Static("Tasks", classes="title")
-                                    yield tasks
-                                with Vertical(id="browse-task-detail"):
-                                    yield Static("Task Detail", classes="title")
-                                    yield Static("Select a task row to load details.", id="task-detail")
+                                with Horizontal():
+                                    with Vertical(id="browse-tasks"):
+                                        tasks = DataTable(id="tasks-table", cursor_type="row")
+                                        tasks.add_columns("id", "description", "project")
+                                        yield Static("Tasks", classes="title")
+                                        yield tasks
+                                    with Vertical(id="task-workspace"):
+                                        yield Static("Task Workspace", classes="title")
+                                        with TabbedContent(initial="task-summary-pane", id="task-workspace-tabs"):
+                                            with TabPane("Summary", id="task-summary-pane"):
+                                                yield Static("Select a task row to load details.", id="task-summary")
+                                            with TabPane("Task Note", id="task-note-pane"):
+                                                yield Static("No task note loaded.", id="task-note-preview")
+                                            with TabPane("Chain Note", id="chain-note-pane"):
+                                                yield Static("No chain note loaded.", id="chain-note-preview")
+                                            with TabPane("Project Note", id="project-note-pane"):
+                                                yield Static("No project note loaded.", id="project-note-preview")
+                                            with TabPane("Events", id="task-events-pane"):
+                                                yield Static("No events loaded.", id="task-events-preview")
                             with TabPane("Projects", id="project-browser-pane"):
-                                with Vertical(id="browse-projects"):
-                                    projects = DataTable(id="projects-table", cursor_type="row")
-                                    projects.add_columns("project", "updated")
-                                    yield Static("Projects", classes="title")
-                                    yield projects
-                                with Vertical(id="browse-project-detail"):
-                                    yield Static("Project Detail", classes="title")
-                                    yield Static("Select a project row to load details.", id="project-detail")
-                    with Horizontal(id="browse-search"):
-                        with Vertical(id="browse-search-left"):
-                            notes = DataTable(id="search-notes-table", cursor_type="row")
-                            notes.add_columns("kind", "path", "match")
-                            yield Static("Search Notes", classes="title")
-                            yield notes
-                        with Vertical(id="browse-search-right"):
-                            events = DataTable(id="search-events-table", cursor_type="row")
-                            events.add_columns("task", "annotation", "ts")
-                            yield Static("Search Events", classes="title")
-                            yield events
+                                with Horizontal():
+                                    with Vertical(id="browse-projects"):
+                                        projects = DataTable(id="projects-table", cursor_type="row")
+                                        projects.add_columns("project", "updated")
+                                        yield Static("Projects", classes="title")
+                                        yield projects
+                                    with Vertical(id="project-workspace"):
+                                        yield Static("Project Workspace", classes="title")
+                                        with TabbedContent(initial="project-summary-pane", id="project-workspace-tabs"):
+                                            with TabPane("Summary", id="project-summary-pane"):
+                                                yield Static("Select a project row to load details.", id="project-summary")
+                                            with TabPane("Project Note", id="project-note-body-pane"):
+                                                yield Static("No project note loaded.", id="project-note-body")
+                with TabPane("Search", id="search-tab"):
+                    with Vertical():
+                        with Horizontal(id="search-bar"):
+                            yield Input(placeholder="Search notes/events and press Enter", id="search-input")
+                        with Horizontal():
+                            with Vertical():
+                                notes = DataTable(id="search-notes-table", cursor_type="row")
+                                notes.add_columns("kind", "path", "match")
+                                yield Static("Search Notes", classes="title")
+                                yield notes
+                            with Vertical():
+                                events = DataTable(id="search-events-table", cursor_type="row")
+                                events.add_columns("task", "annotation", "ts")
+                                yield Static("Search Events", classes="title")
+                                yield events
                 with TabPane("Latest Edits", id="latest-tab"):
                     with Vertical(id="latest-pane"):
                         recent = DataTable(id="recent-table", cursor_type="row")
@@ -169,7 +185,6 @@ def run_tui(service: JotService) -> int:
             await self._refresh_recent_async()
             await self._refresh_tasks_async()
             await self._refresh_projects_async()
-            self._set_search_visibility(False)
             self._update_action_hints()
 
         async def action_refresh(self) -> None:
@@ -237,13 +252,10 @@ def run_tui(service: JotService) -> int:
                 return
             query = event.value.strip()
             if not query:
+                self.query_one("#search-notes-table", DataTable).clear()
+                self.query_one("#search-events-table", DataTable).clear()
                 return
             self._run_search(query)
-
-        def on_button_pressed(self, event: Button.Pressed) -> None:
-            if event.button.id != "search-toggle":
-                return
-            self._set_search_visibility(not self.search_visible)
 
         def on_data_table_row_selected(self, event: DataTable.RowSelected) -> None:
             if event.data_table.id == "recent-table":
@@ -342,27 +354,16 @@ def run_tui(service: JotService) -> int:
                     str(item.get("ts") or ""),
                 )
 
-        def _clear_search(self) -> None:
-            self.query_one("#search-notes-table", DataTable).clear()
-            self.query_one("#search-events-table", DataTable).clear()
-
-        def _set_search_visibility(self, visible: bool) -> None:
-            self.search_visible = visible
-            search = self.query_one("#browse-search", Horizontal)
-            toggle = self.query_one("#search-toggle", Button)
-            if visible:
-                search.remove_class("hidden")
-                toggle.label = "Hide Search"
-            else:
-                search.add_class("hidden")
-                toggle.label = "Show Search"
-
         async def _load_task_async(self, task_ref: str) -> None:
-            detail = self.query_one("#task-detail", Static)
+            summary = self.query_one("#task-summary", Static)
+            task_note = self.query_one("#task-note-preview", Static)
+            chain_note = self.query_one("#chain-note-preview", Static)
+            project_note = self.query_one("#project-note-preview", Static)
+            events_view = self.query_one("#task-events-preview", Static)
             try:
-                data = await asyncio.to_thread(self.svc.task_summary, task_ref)
+                data = await asyncio.to_thread(self.svc.task_workspace, task_ref)
             except Exception as exc:
-                detail.update(f"Task load failed for {task_ref}\n\n{exc}")
+                summary.update(f"Task load failed for {task_ref}\n\n{exc}")
                 return
             lines: list[str] = []
             task = data.get("task", {})
@@ -372,33 +373,36 @@ def run_tui(service: JotService) -> int:
             tags = task.get("tags") or []
             if tags:
                 lines.append(f"Tags: {', '.join(tags)}")
+            nautical = data.get("nautical") or {}
+            if nautical:
+                lines.append("")
+                lines.append("Nautical:")
+                for key, value in nautical.items():
+                    if value not in (None, "", []):
+                        lines.append(f"  {key}: {value}")
             notes = data.get("notes", {})
-            self.current_task_chain_path = str(notes.get("chain") or "").strip()
+            task_note_data = notes.get("task") or {}
+            chain_note_data = notes.get("chain") or {}
+            project_note_data = notes.get("project") or {}
+            self.current_task_chain_path = str(chain_note_data.get("path") or "").strip()
             self.current_task_project = str(task.get("project") or "").strip()
             lines.append("")
-            lines.append("Notes:")
-            lines.append(f"  task: {notes.get('task')}")
-            if notes.get("chain"):
-                lines.append(f"  chain: {notes.get('chain')}")
-            if notes.get("project"):
-                lines.append(f"  project: {notes.get('project')}")
-            lines.append("")
-            lines.append("Recent events:")
             events = data.get("events") or []
-            if not events:
-                lines.append("  (none)")
-            else:
-                for item in events[:8]:
-                    lines.append(f"  {item.get('entry') or ''} {item.get('description') or ''}".strip())
-            detail.update("\n".join(lines))
+            lines.append(f"Events: {len(events)}")
+            summary.update("\n".join(lines))
+            task_note.update(self._render_note_panel("Task Note", task_note_data))
+            chain_note.update(self._render_note_panel("Chain Note", chain_note_data))
+            project_note.update(self._render_note_panel("Project Note", project_note_data))
+            events_view.update(self._render_events_panel(events))
             self._update_action_hints()
 
         async def _load_project_async(self, project_name: str) -> None:
-            detail = self.query_one("#project-detail", Static)
-            path = await asyncio.to_thread(self.svc.project_note_path_for_name, project_name)
-            lines = [f"Project {project_name}", ""]
-            lines.append(f"Note: {path}")
-            detail.update("\n".join(lines))
+            summary = self.query_one("#project-summary", Static)
+            note_body = self.query_one("#project-note-body", Static)
+            data = await asyncio.to_thread(self.svc.project_workspace, project_name)
+            note = data.get("note") or {}
+            summary.update(f"Project {project_name}\n\nNote: {note.get('path') or ''}")
+            note_body.update(self._render_note_panel("Project Note", note))
             self._update_action_hints()
 
         async def _apply_add_to_async(self, kind: str, payload: dict[str, Any]) -> None:
@@ -462,6 +466,23 @@ def run_tui(service: JotService) -> int:
             if self.current_project_name or self.current_task_project:
                 hints.append("p add-project")
             self.query_one("#context-hints", Static).update(" | ".join(hints))
+
+        def _render_note_panel(self, title: str, note: dict[str, Any]) -> str:
+            path = str(note.get("path") or "").strip()
+            body = str(note.get("body") or "").strip()
+            lines = [title, ""]
+            lines.append(f"Path: {path or '(none)'}")
+            lines.append("")
+            lines.append(body or "(empty)")
+            return "\n".join(lines)
+
+        def _render_events_panel(self, events: list[dict[str, Any]]) -> str:
+            if not events:
+                return "Events\n\n(none)"
+            lines = ["Events", ""]
+            for item in events[:12]:
+                lines.append(f"{item.get('entry') or ''} {item.get('description') or ''}".strip())
+            return "\n".join(lines)
 
     app = JotTUI(service)
     app.run()
