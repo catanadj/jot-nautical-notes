@@ -1,13 +1,17 @@
 # jot
 
-`jot` is a note-first companion to Taskwarrior and, especially, to
-Taskwarrior-Nautical.
+`jot` is a note-first companion for Taskwarrior and Taskwarrior-Nautical.
+It helps you keep the context around a task in one place: what happened, what
+changed, what still matters, and what belongs to the wider project or recurring
+chain.
 
-It keeps durable task notes and Nautical chain notes as Markdown files under
-`~/.task/jot/`, while using Taskwarrior annotations as the visible event stream.
-It also supports durable project notes for Taskwarrior project namespaces.
+Use `jot` when Taskwarrior alone is not enough and you want:
 
-Current status: usable CLI core, no hooks yet.
+- task notes that stay with the task
+- chain notes for recurring Nautical work
+- project notes for shared project context
+- quick timestamped updates without opening the full editor every time
+- a TUI that makes browsing and updating notes faster than typing commands
 
 ## Install
 
@@ -17,10 +21,10 @@ From the repo root:
 ./install.sh
 ```
 
-That installs:
+That installs `jot` into:
 
-- `~/.local/lib/jot/`
 - `~/.local/bin/jot`
+- `~/.local/lib/jot/`
 
 If `~/.local/bin` is not on your `PATH`, add:
 
@@ -28,204 +32,201 @@ If `~/.local/bin` is not on your `PATH`, add:
 export PATH="$HOME/.local/bin:$PATH"
 ```
 
-Alternative:
+## Start Here
+
+If you just want to see what `jot` can do:
 
 ```bash
-python3 -m pip install .
+jot
 ```
 
-## What It Does
-
-- opens or creates a task note
-- opens or creates a Nautical chain note
-- appends plain text to either kind of note
-- adds short task events as annotations
-- lists the current event stream for a task
-- exports task summary data
-- searches notes and logged events
-- maintains rebuildable sidecar state
-
-## Current Commands
+If you want the full help:
 
 ```bash
-jot doctor
-jot paths
-jot rebuild-index
-jot stats
+jot --help
+```
+
+If you want the visual interface:
+
+```bash
 jot tui
-jot project-list
-jot report recent [--limit N]
-jot report recent --kind event --limit 10
-jot note <task-ref>
-jot chain <task-ref>
-jot task-cat <task-ref>
-jot chain-cat <task-ref>
-jot task-delete <task-ref>
-jot chain-delete <task-ref>
-jot project <project-name>
-jot project-show <project-name>
-jot project-cat <project-name>
-jot project-delete <project-name>
-jot note-append <task-ref> [text...]
-jot chain-append <task-ref> [text...]
-jot project-append <project-name> [text...]
-jot add-to {task|chain|project} <ref> --heading <title> [--create-heading] [--heading-exact] [--text "..."]
-jot add [--type TYPE] <task-ref> [text...]
-jot list <task-ref>
-jot show <task-ref>
-jot export <task-ref>
-jot search [--kind KIND] [--project NAME] [--chain ID] <query>
 ```
 
-All commands support `--json`.
+## What `jot` Is Good At
 
-`jot tui` launches a terminal UI. It requires `textual`:
+### For a single task
+
+Keep the task’s context in one place:
 
 ```bash
-pip install textual
+jot note 42
+jot note-append 42 Followed up with the vendor
+jot add-to task 42 --heading "Next steps" --text "Call vendor Monday"
+jot task-cat 42
 ```
 
-TUI keybinds:
+### For recurring Nautical work
+
+Keep a note for the whole recurrence chain:
+
+```bash
+jot chain 42
+jot chain-append 42 Skip holidays
+jot add-to chain 42 --heading "Operating notes" --text "Use the fallback path"
+jot chain-cat 42
+```
+
+### For project-wide context
+
+Keep shared notes for a project namespace:
+
+```bash
+jot project Finances.Expense
+jot project-append Finances.Expense Waiting on reimbursement policy update
+jot add-to project Finances.Expense --heading "Risks" --text "Vendor delay"
+jot project-show Finances.Expense
+```
+
+### For quick updates
+
+Capture short events and keep them visible in Taskwarrior:
+
+```bash
+jot add --type status 42 waiting on vendor
+jot list 42
+jot show 42
+jot search vendor
+```
+
+## TUI
+
+`jot tui` is the fastest way to browse and update notes.
+
+Main shortcuts:
 
 - `q` quit
 - `r` refresh data
 - `u` refresh the current workspace
-- `ctrl+p` command palette
-- `/` focus search input
-- `Enter` open the selected row into its detail workspace
-- `e` open the active note in the current workspace
-- `d` move the active note to `.jot_trash/` after confirmation
-- `a` add a timestamped entry under a heading for selected task
-- `c` add a timestamped entry under a heading for selected chain note (from selected task)
-- `p` open the project workspace for the selected project or task project
+- `ctrl+p` open the command palette
+- `/` focus search
+- `Enter` open the selected row
+- `e` open the active note in the editor
+- `d` move the active note to trash
+- `a` add a timestamped entry under a task heading
+- `c` add a timestamped entry under a chain heading
+- `p` open the project workspace
 
-TUI panes:
+The TUI has three main areas:
 
-- `Browse` tab: `Tasks` browser with project/tag/notes filters and hierarchical `Projects` tree
-- `Latest Edits` tab: recent activity stream with its own detail workspace
-- `Search` tab: free-text search across notes and logged events
+- `Browse` for tasks and projects
+- `Latest Edits` for recent activity
+- `Search` for finding notes and logged events
 
-The CLI also supports:
+## Common Commands
+
+Task notes:
 
 ```bash
-jot --version
+jot note <task-ref>
+jot note-append <task-ref> [text...]
+jot task-cat <task-ref>
+jot task-delete <task-ref>
 ```
 
-Supported task references:
+Chain notes:
 
-- numeric task ID
-- full UUID
-- short UUID if unique
+```bash
+jot chain <task-ref>
+jot chain-append <task-ref> [text...]
+jot chain-cat <task-ref>
+jot chain-delete <task-ref>
+```
 
-## Storage Model
+Project notes:
 
-User data lives in `~/.task/jot/`:
+```bash
+jot project <project-name>
+jot project-append <project-name> [text...]
+jot project-show <project-name>
+jot project-cat <project-name>
+jot project-delete <project-name>
+```
 
-- `tasks/<task_short_uuid>--<slug>.md`
-- `chains/<chain_id>--<slug>.md`
-- `projects/<project path>/index.md`
-- `.jot_trash/<timestamp>/<original note path>`
-- `templates/task-note.md`
-- `templates/chain-note.md`
-- `templates/project-note.md`
-- `index.json`
-- `ops.jsonl`
-- `config-jot.toml`
+Browsing and reporting:
 
-Rules:
+```bash
+jot project-list
+jot report recent --limit 10
+jot stats
+jot paths
+jot rebuild-index
+jot search --kind project-note vendor
+```
 
-- note files are the source of truth
-- annotations are the visible event stream
-- `index.json` is rebuildable cache
-- `ops.jsonl` is append-only audit state
-- deleted notes are moved under `.jot_trash/`
+Reference and event capture:
+
+```bash
+jot add [--type TYPE] <task-ref> [text...]
+jot add-to {task|chain|project} <ref> --heading <title> [--text "..."]
+jot list <task-ref>
+jot show <task-ref>
+jot export <task-ref>
+```
+
+All commands support `--json`.
 
 ## Templates
 
-`jot` supports per-kind templates in `~/.task/jot/templates/`:
+`jot` creates note files from templates when they exist. If you want to change
+the default note layout, edit the files in `~/.task/jot/templates/`:
 
 - `task-note.md`
 - `chain-note.md`
 - `project-note.md`
 
-If a template file is missing, empty, or cannot be parsed, `jot` falls back to the built-in starter body for that note kind.
+Templates can use tokens such as:
 
-Supported tokens in templates:
+- `{description}`
+- `{project}`
+- `{chain_id}`
+- `{date}`
+- `{time}`
+- `{datetime}`
 
-- `{task_short_uuid}` or `{{task_short_uuid}}`
-- `{task_uuid}` or `{{task_uuid}}`
-- `{description}` or `{{description}}`
-- `{project}` or `{{project}}`
-- `{chain_id}` or `{{chain_id}}`
-- `{link}` or `{{link}}`
-- `{date}` or `{{date}}`
-- `{time}` or `{{time}}`
-- `{datetime}` or `{{datetime}}`
-- `{created}` or `{{created}}`
-- `{updated}` or `{{updated}}`
-- `{project_path}` or `{{project_path}}`
-
-`add-to` behavior:
-
-- resolves headings with fuzzy matching by default
-- supports strict matching with `--heading-exact`
-- creates missing headings with `--create-heading`
-- writes entries as timestamped bullets, for example:
-  `- [2026-04-12T13:30:00Z] call vendor`
+If a template is missing or invalid, `jot` falls back to the built-in note
+layout.
 
 ## Nautical Companion
 
-`jot` is designed to complement Nautical’s recurrence model.
+`jot` is designed to complement Taskwarrior-Nautical.
 
-When a task has Nautical fields such as `chainID`, `anchor`, `cp`, or `link`,
-`jot` can:
+When a task belongs to a Nautical chain, `jot` can keep:
 
-- keep an occurrence note for the concrete task
-- keep a chain note for the whole recurrence line
-- surface the matching project note when the task belongs to a project
-- include Nautical context in `show`, `list`, and `export`
+- a note for the concrete task occurrence
+- a note for the chain itself
+- a note for the broader project the task belongs to
 
-Chain notes are keyed by `chainID`.
+That gives you three layers of context without forcing everything into one note.
 
-## Examples
+## Help and Version
 
 ```bash
-jot note 42
-jot chain 42
-jot task-cat 42
-jot chain-cat 42
-jot project Finances.Expense
-jot project-show Finances.Expense
-jot project-cat Finances.Expense
-jot paths
-jot rebuild-index
-jot stats
-jot project-list
-jot report recent --limit 10
-jot search --kind project-note vendor
-jot search --project finance.audit vendor
-jot search --chain a4bf5egh vendor
-jot add-to task 42 --heading "Next steps" --text "Call vendor Monday"
-jot note-append 42 Followed up with vendor
-jot project-append Finances.Expense waiting on reimbursement rules
-jot add --type status 42 waiting on vendor
-jot list 42
-jot --json export 42
-jot search vendor
+jot --help
+jot --version
 ```
 
 ## Tests
 
 ```bash
-python3 -m py_compile jot jot_core/*.py tests/test_jot.py
+python3 -m py_compile jot jot_core/*.py jot_tui/*.py tests/test_jot.py
 python3 -m unittest discover -s tests -v
 ```
 
-The tests use a fake `task` binary and temporary `HOME`, so they do not touch
-live Taskwarrior data.
+The tests use a fake `task` binary and a temporary `HOME`, so they do not touch
+your real Taskwarrior data.
 
-## Current Limits
+## Notes
 
-- no hooks yet
-- no advanced filter-expression task resolution yet
-- no event editing/removal workflow
+- `jot` does not install hooks yet
+- Taskwarrior annotations are treated as the visible event stream
+- Durable content lives in note files under `~/.task/jot/`
