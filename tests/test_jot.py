@@ -168,7 +168,7 @@ class CliIntegrationTests(JotCliTestCase):
     def test_version_flag(self) -> None:
         result = self.run_jot("--version")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(result.stdout.strip(), "jot 0.1.0")
+        self.assertEqual(result.stdout.strip(), "jot 0.3.0")
 
     def test_doctor_reports_hardened_checks(self) -> None:
         result = self.run_jot("--json", "doctor")
